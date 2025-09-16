@@ -1,0 +1,61 @@
+version: "3.8"
+
+services:
+  #Target
+  juiceshop:
+    image: bkimminich/juice-shop
+    container_name: juiceshop
+    restart: always
+    ports:
+      - "3000:3000"
+
+  #Coraza
+  coraza:
+    image: corazawaf/coraza-proxy:latest
+    container_name: coraza
+    restart: always
+    ports:
+      - "8080:80"        # target:8080
+    volumes:
+      - ./coraza.conf:/etc/coraza/coraza.conf:ro
+      - ./logs:/var/log/coraza
+    depends_on:
+      - juiceshop
+
+  #Elasticsearch
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.14.1
+    container_name: elasticsearch
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    mem_limit: 1g
+    ports:
+      - "9200:9200"
+
+  #Kibana
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.14.1
+    container_name: kibana
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+    ports:
+      - "5601:5601"
+    depends_on:
+      - elasticsearch
+
+  #Logstash pars log frm coraza
+  logstash:
+    image: docker.elastic.co/logstash/logstash:8.14.1
+    container_name: logstash
+    volumes:
+      - ./logstash.conf:/usr/share/logstash/pipeline/logstash.conf
+      - ./logs:/var/log/coraza
+    ports:
+      - "5044:5044"
+    depends_on:
+      - elasticsearch
