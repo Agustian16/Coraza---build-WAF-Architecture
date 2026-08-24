@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Card,
   CardHeader,
@@ -23,6 +23,7 @@ import {
   mockSites,
   sampleSecLang,
 } from "@/lib/mock-data";
+import { getCrsCategories, getRules, getSites } from "@/lib/api";
 import type { CustomRule, Site } from "@/lib/types";
 
 const emptyRule: CustomRule = {
@@ -41,6 +42,7 @@ export default function RulesPage() {
   const [categories, setCategories] = useState(mockCrsCategories);
   const [rules, setRules] = useState(mockCustomRules);
   const [editing, setEditing] = useState<CustomRule | null>(null);
+  useEffect(() => { getCrsCategories().then(setCategories).catch(() => {}); getRules().then(setRules).catch(() => {}); getSites().then((ss) => { if (ss.length) setSite(ss[0]); }).catch(() => {}); }, []);
   const [mode, setMode] = useState<"visual" | "code">("code");
   const [sandbox, setSandbox] = useState<null | { matched: boolean; ruleId: number; data: string }>(null);
 

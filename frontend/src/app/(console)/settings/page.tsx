@@ -1,12 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Card, CardHeader, PageHeader, Button, Badge, Input, Label, Select } from "@/components/ui";
 import { Download, Upload, Plus, Trash2 } from "lucide-react";
 import { mockIpList } from "@/lib/mock-data";
+import { getIpList } from "@/lib/api";
 
 export default function SettingsPage() {
   const [ipList, setIpList] = useState(mockIpList);
+  useEffect(() => { getIpList().then(setIpList).catch(() => {}); }, []);
   const [cidr, setCidr] = useState("");
   const [listType, setListType] = useState<"allow" | "block">("block");
 

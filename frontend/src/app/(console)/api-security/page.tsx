@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect, useState } from "react";
+
 import { Card, CardHeader, PageHeader, Badge, cn } from "@/components/ui";
 import { Braces, FileJson, KeyRound, EyeOff } from "lucide-react";
 import {
@@ -17,6 +19,7 @@ import {
   mockApiEndpoints,
   mockDataExposures,
 } from "@/lib/mock-data";
+import { getApiEndpoints, getExposures } from "@/lib/api";
 import type { SchemaStatus } from "@/lib/types";
 
 const specTone: Record<SchemaStatus, "green" | "amber" | "red"> = {
@@ -65,6 +68,9 @@ function Kpi({
 }
 
 export default function ApiSecurityPage() {
+  const [endpoints, setEndpoints] = useState(mockApiEndpoints);
+  const [exposureRows, setExposureRows] = useState(mockDataExposures);
+  useEffect(() => { getApiEndpoints().then(setEndpoints).catch(() => {}); getExposures().then(setExposureRows).catch(() => {}); }, []);
   const s = apiSecurityStats;
   return (
     <>
@@ -98,7 +104,7 @@ export default function ApiSecurityPage() {
                 </tr>
               </thead>
               <tbody>
-                {mockApiEndpoints.map((ep) => (
+                {endpoints.map((ep) => (
                   <tr key={ep.id} className="border-b border-line/50 hover:bg-hover/50">
                     <td className="px-5 py-3">
                       <span
@@ -177,7 +183,7 @@ export default function ApiSecurityPage() {
             </tr>
           </thead>
           <tbody>
-            {mockDataExposures.map((d) => (
+            {exposureRows.map((d) => (
               <tr key={d.id} className="border-b border-line/50 hover:bg-hover/50">
                 <td className="px-5 py-3 font-mono text-amber-300">{d.data_type}</td>
                 <td className="px-5 py-3 font-mono text-dim">{d.endpoint}</td>

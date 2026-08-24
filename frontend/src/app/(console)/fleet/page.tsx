@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Card,
   CardHeader,
@@ -13,6 +13,7 @@ import {
 } from "@/components/ui";
 import { Plus, RefreshCw, Cpu, MemoryStick } from "lucide-react";
 import { mockNodes } from "@/lib/mock-data";
+import { getNodes } from "@/lib/api";
 import type { CorazaNode } from "@/lib/types";
 
 function statusTone(s: CorazaNode["status"]) {
@@ -20,7 +21,8 @@ function statusTone(s: CorazaNode["status"]) {
 }
 
 export default function FleetPage() {
-  const [nodes] = useState(mockNodes);
+  const [nodes, setNodes] = useState(mockNodes);
+  useEffect(() => { getNodes().then(setNodes).catch(() => {}); }, []);
   const [registerOpen, setRegisterOpen] = useState(false);
 
   return (

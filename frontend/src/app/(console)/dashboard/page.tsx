@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect, useState } from "react";
+
 import {
   Card,
   CardHeader,
@@ -20,6 +22,7 @@ import {
 } from "recharts";
 import { ArrowDownRight, ArrowUpRight, Activity, ShieldAlert, Timer } from "lucide-react";
 import { trafficTrend, topRules, topAttackers, mockNodes, mockGeoStats } from "@/lib/mock-data";
+import { getGeo, getNodes, getOverview, type DashboardOverview } from "@/lib/api";
 import { WorldMap } from "@/components/world-map";
 
 function Kpi({
@@ -63,6 +66,10 @@ function Kpi({
 }
 
 export default function DashboardPage() {
+  const [nodes, setNodes] = useState(mockNodes);
+  const [geo, setGeo] = useState(mockGeoStats);
+  const [overview, setOverview] = useState<DashboardOverview | null>(null);
+  useEffect(() => { getNodes().then(setNodes).catch(() => {}); getGeo().then(setGeo).catch(() => {}); getOverview().then(setOverview).catch(() => {}); }, []);
   return (
     <>
       <PageHeader
@@ -81,7 +88,7 @@ export default function DashboardPage() {
       <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
         <Kpi
           label="Total Traffic"
-          value="12,483"
+          value={overview ? overview.kpi.total_rps.toLocaleString("en-US") : "12,483"}
           unit="req/s"
           delta="-4.2% vs yesterday"
           up_good
@@ -89,14 +96,14 @@ export default function DashboardPage() {
         />
         <Kpi
           label="Blocked Requests"
-          value="18,392"
+          value={overview ? overview.kpi.blocked_24h.toLocaleString("en-US") : "18,392"}
           delta="+12.8% vs yesterday"
           up_good={false}
           icon={ShieldAlert}
         />
         <Kpi
           label="Block Ratio"
-          value="2.7"
+          value={overview ? overview.kpi.block_ratio_pct.toFixed(1) : "2.7"}
           unit="%"
           delta="+0.3 pts vs yesterday"
           up_good={false}
@@ -104,7 +111,7 @@ export default function DashboardPage() {
         />
         <Kpi
           label="Avg WAF Latency"
-          value="1.4"
+          value={overview ? overview.kpi.avg_latency_ms.toFixed(1) : "1.4"}
           unit="ms"
           delta="NFR target < 2 ms"
           up_good
@@ -228,7 +235,7 @@ export default function DashboardPage() {
             right={<Button variant="ghost">Manage</Button>}
           />
           <div className="space-y-3 p-5">
-            {mockNodes.map((n) => (
+            {nodes.map((n) => (
               <div key={n.id} className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
                   <div className="truncate font-mono text-xs text-dim">{n.node_name}</div>
@@ -258,7 +265,7 @@ export default function DashboardPage() {
             subtitle="Requests vs blocked by source country, last 24h"
           />
           <div className="p-5">
-            <WorldMap stats={mockGeoStats} />
+            <WorldMap stats={geo} />
             <table className="mt-4 w-full text-left text-xs">
               <thead>
                 <tr className="border-b border-line text-[11px] uppercase tracking-wider text-muted">
@@ -269,7 +276,7 @@ export default function DashboardPage() {
                 </tr>
               </thead>
               <tbody>
-                {[...mockGeoStats]
+                {[...geo]
                   .sort((a, b) => b.blocked - a.blocked)
                   .slice(0, 5)
                   .map((g) => (
@@ -296,7 +303,7 @@ export default function DashboardPage() {
           </div>
         </Card>
 
-        <SecurityPosture />
+        <SecurityPosture overview={overview} />
       </div>
     </>
   );
@@ -313,10 +320,11 @@ const postureChecks = [
   { label: "mTLS Transport", detail: "gRPC streams with x509 mutual TLS", ok: true },
 ];
 
-function SecurityPosture() {
-  const score = Math.round(
-    (postureChecks.filter((c) => c.ok).length / postureChecks.length) * 100
-  );
+function SecurityPosture({ overview }: { overview: DashboardOverview | null }) {
+  const checks = overview?.posture.checks ?? postureChecks;
+  const score =
+    overview?.posture.score ??
+    Math.round((postureChecks.filter((c) => c.ok).length / postureChecks.length) * 100);
   return (
     <Card>
       <CardHeader title="Security Posture" subtitle="Continuous configuration assessment" />
@@ -347,7 +355,7 @@ function SecurityPosture() {
         </div>
 
         <ul className="mt-4 space-y-2.5 border-t border-line pt-4">
-          {postureChecks.map((c) => (
+          {checks.map((c) => (
             <li key={c.label} className="flex items-start justify-between gap-3">
               <div>
                 <div className="text-xs font-medium text-dim">{c.label}</div>

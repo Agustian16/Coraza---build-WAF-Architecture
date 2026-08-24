@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Card,
   CardHeader,
@@ -13,6 +13,7 @@ import {
 } from "@/components/ui";
 import { X, Ban, ShieldOff } from "lucide-react";
 import { mockLogs } from "@/lib/mock-data";
+import { getLogs } from "@/lib/api";
 import type { AuditLog } from "@/lib/types";
 
 export default function LogsPage() {
@@ -20,18 +21,20 @@ export default function LogsPage() {
   const [filters, setFilters] = useState<{ ruleId?: string; action?: string; host?: string }>({});
   const [ruleInput, setRuleInput] = useState("");
   const [selected, setSelected] = useState<AuditLog | null>(null);
+  const [logRows, setLogRows] = useState(mockLogs);
+  useEffect(() => { getLogs().then(setLogRows).catch(() => {}); }, []);
   const [toast, setToast] = useState<string | null>(null);
 
   const logs = useMemo(
     () =>
-      mockLogs.filter(
+      logRows.filter(
         (l) =>
           (!filters.ruleId ||
             l.matched_rule_ids.some((id) => String(id).startsWith(filters.ruleId!))) &&
           (!filters.action || l.action_taken === filters.action) &&
           (!filters.host || l.target_host === filters.host)
       ),
-    [filters]
+    [filters, logRows]
   );
 
   const addChip = () => {

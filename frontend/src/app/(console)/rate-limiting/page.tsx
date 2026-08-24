@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Card,
   CardHeader,
@@ -22,11 +22,13 @@ import {
   Tooltip,
 } from "recharts";
 import { mockRateLimitRules, rateLimitStats } from "@/lib/mock-data";
+import { getRateLimits } from "@/lib/api";
 
 const actionTone = { BLOCK: "red", TARPIT: "amber", CAPTCHA: "cyan" } as const;
 
 export default function RateLimitingPage() {
   const [rules, setRules] = useState(mockRateLimitRules);
+  useEffect(() => { getRateLimits().then(setRules).catch(() => {}); }, []);
 
   return (
     <>

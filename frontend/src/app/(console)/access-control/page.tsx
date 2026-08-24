@@ -1,9 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Card, CardHeader, PageHeader, Button, Badge, cn } from "@/components/ui";
 import { X, ScrollText } from "lucide-react";
 import { mockAccessEvents, mockLogs } from "@/lib/mock-data";
+import { getAccessEvents } from "@/lib/api";
 import type { AccessEvent } from "@/lib/types";
 
 function actionTone(a: AccessEvent["action"]) {
@@ -12,11 +13,13 @@ function actionTone(a: AccessEvent["action"]) {
 
 export default function AccessControlPage() {
   const [selected, setSelected] = useState<AccessEvent | null>(null);
+  const [allEvents, setAllEvents] = useState(mockAccessEvents);
+  useEffect(() => { getAccessEvents().then(setAllEvents).catch(() => {}); }, []);
   const [filter, setFilter] = useState<"ALL" | "DENY" | "ALLOW">("ALL");
 
   const events = useMemo(
-    () => mockAccessEvents.filter((e) => filter === "ALL" || e.action === filter),
-    [filter]
+    () => allEvents.filter((e) => filter === "ALL" || e.action === filter),
+    [filter, allEvents]
   );
 
   // Related audit-log transactions for the selected event

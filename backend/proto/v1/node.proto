@@ -1,0 +1,71 @@
+syntax = "proto3";
+
+package corazium.v1;
+
+option go_package = "corazium/controlplane/gen/v1;v1";
+
+// NodeControlStream is the mTLS bidirectional stream between the Corazium
+// control plane and edge nodes (Caddy/Envoy/SPOA + Coraza agent).
+service NodeControl {
+  // Register enrolls a node; returns an enrollment ack with the active
+  // configuration version.
+  rpc Register(RegisterRequest) returns (RegisterResponse);
+
+  // StreamConfigs keeps a long-lived server-stream open: the control plane
+  // pushes new config versions (<1s target, NFR-1.2) and the node acks them.
+  rpc StreamConfigs(stream ConfigAck) returns (stream ConfigUpdate);
+
+  // Heartbeat reports node health metrics (FR-1.2). Bidirectional: the
+  // control plane can answer with a desired config version mid-stream.
+  rpc Heartbeat(stream HeartbeatRequest) returns (stream HeartbeatResponse);
+}
+
+message RegisterRequest {
+  string node_id = 1;
+  string hostname = 2;
+  string ip_address = 3;
+  string coraza_version = 4;
+  string crs_version = 5;
+}
+
+message RegisterResponse {
+  bool accepted = 1;
+  string config_version = 2;
+  string seclang_bundle = 3; // full SecLang config on enrollment
+}
+
+message ConfigUpdate {
+  string config_version = 1;
+  string seclang_bundle = 2; // full SecLang snapshot (hot-reload source)
+  repeated CrsToggle crs_toggles = 3;
+  int32 paranoia_level = 4;
+  int32 inbound_threshold = 5;
+  int32 outbound_threshold = 6;
+}
+
+message CrsToggle {
+  string rule_prefix = 1; // e.g. "942xxx"
+  bool enabled = 2;
+}
+
+message ConfigAck {
+  string node_id = 1;
+  string config_version = 2;
+  bool applied = 3;
+  string error = 4;
+}
+
+message HeartbeatRequest {
+  string node_id = 1;
+  double cpu_pct = 2;
+  double mem_pct = 3;
+  double rps = 4;
+  double latency_ms = 5;
+  string current_config_version = 6;
+  int64 unix_ts = 7;
+}
+
+message HeartbeatResponse {
+  bool ok = 1;
+  string desired_config_version = 2; // non-empty => node should re-sync
+}

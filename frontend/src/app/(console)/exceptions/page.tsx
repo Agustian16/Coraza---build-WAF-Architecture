@@ -1,12 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Card, CardHeader, PageHeader, Button, Badge, EmptyState, fmtDate } from "@/components/ui";
 import { Plus, Trash2 } from "lucide-react";
 import { mockExceptions, mockSites } from "@/lib/mock-data";
+import { getExceptions } from "@/lib/api";
 
 export default function ExceptionsPage() {
   const [exceptions, setExceptions] = useState(mockExceptions);
+  useEffect(() => { getExceptions().then(setExceptions).catch(() => {}); }, []);
 
   return (
     <>

@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Card, CardHeader, PageHeader, Badge, Select } from "@/components/ui";
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip, Legend } from "recharts";
 import { botTrafficSplit, mockBotCategories } from "@/lib/mock-data";
+import { getBots } from "@/lib/api";
 import type { BotAction } from "@/lib/types";
 
 const actionTone: Record<BotAction, "green" | "amber" | "cyan" | "red"> = {
@@ -15,6 +16,7 @@ const actionTone: Record<BotAction, "green" | "amber" | "cyan" | "red"> = {
 
 export default function AntiBotPage() {
   const [bots, setBots] = useState(mockBotCategories);
+  useEffect(() => { getBots().then(setBots).catch(() => {}); }, []);
 
   return (
     <>
