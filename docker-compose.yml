@@ -2,6 +2,7 @@
 # can be scaled/deployed independently (frontend, control plane, databases).
 services:
   frontend:
+    restart: unless-stopped
     build: ./frontend
     ports:
       - "3000:3000"
@@ -13,6 +14,7 @@ services:
         condition: service_healthy
 
   controlplane:
+    restart: unless-stopped
     build: ./backend
     ports:
       - "8080:8080" # REST API
@@ -41,6 +43,7 @@ services:
       retries: 12
 
   postgres:
+    restart: unless-stopped
     image: postgres:16-alpine
     environment:
       - POSTGRES_USER=corazium
@@ -57,6 +60,7 @@ services:
       retries: 12
 
   clickhouse:
+    restart: unless-stopped
     image: clickhouse/clickhouse-server:24-alpine
     ports:
       - "8123:8123"
@@ -76,6 +80,7 @@ services:
       start_period: 15s
 
   redis:
+    restart: unless-stopped
     image: redis:7-alpine
     ports:
       - "6379:6379"
