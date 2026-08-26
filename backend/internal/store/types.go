@@ -170,3 +170,11 @@ type ThreatFeed struct {
 	Status   string `json:"status"`   // SYNCED | PENDING | ERROR
 	LastSync string `json:"last_sync"`
 }
+
+type User struct {
+	ID           string `json:"id"`
+	Email        string `json:"email"`
+	Name         string `json:"name"`
+	Role         string `json:"role"`
+	PasswordHash string `json:"-"`
+}

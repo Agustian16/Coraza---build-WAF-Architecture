@@ -18,20 +18,37 @@ import type {
 } from "./types";
 import { mockNodes } from "./mock-data";
 
-export const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
+export const API_BASE = "/api/v1";
+
+const TOKEN_KEY = "corazium_token";
+
+export const getToken = () => (typeof window === "undefined" ? null : localStorage.getItem(TOKEN_KEY));
+export const setToken = (t: string) => localStorage.setItem(TOKEN_KEY, t);
+export const clearToken = () => localStorage.removeItem(TOKEN_KEY);
+
+function headers(): HeadersInit {
+  const t = getToken();
+  return t ? { "Content-Type": "application/json", Authorization: `Bearer ${t}` } : { "Content-Type": "application/json" };
+}
+
+function handle401(res: Response) {
+  if (res.status === 401 && typeof window !== "undefined" && !window.location.pathname.startsWith("/login")) {
+    clearToken();
+    window.location.href = "/login";
+  }
+}
 
 async function get<T>(path: string): Promise<T> {
-  if (!API_BASE) throw new Error("api disabled");
-  const res = await fetch(`${API_BASE}${path}`);
+  const res = await fetch(`${API_BASE}${path}`, { headers: headers() });
+  handle401(res);
   if (!res.ok) throw new Error(`GET ${path} -> ${res.status}`);
   return res.json();
 }
 
 async function send<T>(method: string, path: string, body?: unknown): Promise<T> {
-  if (!API_BASE) throw new Error("api disabled");
   const res = await fetch(`${API_BASE}${path}`, {
     method,
-    headers: { "Content-Type": "application/json" },
+    headers: headers(),
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   if (!res.ok && res.status !== 204) throw new Error(`${method} ${path} -> ${res.status}`);
@@ -74,6 +91,38 @@ export const getApiEndpoints = () => get<ApiEndpoint[]>("/api-security/endpoints
 export const getExposures = () => get<DataExposure[]>("/api-security/exposures");
 export const getGeo = () => get<import("./types").GeoStat[]>("/geo");
 
+// ---- Auth ----
+
+export interface AuthUser {
+  id: string;
+  email: string;
+  name: string;
+  role: string;
+}
+
+export async function login(email: string, password: string): Promise<{ token: string; user: AuthUser }> {
+  const res = await fetch(`${API_BASE}/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Login failed");
+  setToken(data.token);
+  return data;
+}
+
+export const getMe = () => get<AuthUser>("/auth/me");
+export const updateProfile = (payload: { name?: string; email?: string }) =>
+  send<{ token: string; user: AuthUser }>("PATCH", "/auth/profile", payload);
+export const changePassword = (current: string, newPassword: string) =>
+  send("PUT", "/auth/password", { current, new: newPassword });
+export const logout = () => {
+  clearToken();
+  window.location.href = "/login";
+};
+
+// ---- Auth ----
 // ---- writes (fire-and-forget helpers used by interactive controls) ----
 
 export const toggleCrsCategory = (id: string, enabled: boolean) =>
@@ -135,6 +184,6 @@ export const getFeeds = () =>
 export const importFeed = (payload: { name: string; url: string; interval?: string }) =>
   send("POST", "/feeds", payload);
 export const refreshFeed = (id: string) => send("POST", `/feeds/${id}/refresh`);
-export const policyExportUrl = API_BASE ? `${API_BASE}/policy/export` : "";
+export const policyExportUrl = "/api/v1/policy/export";
 
 export { mockNodes };

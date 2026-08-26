@@ -8,18 +8,29 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"corazium/controlplane/internal/store"
+	"corazium/controlplane/internal/auth"
+		"corazium/controlplane/internal/store"
 )
 
 func New(s *store.Store, webOrigin string, notify func()) *gin.Engine {
 	r := gin.Default()
 	r.Use(cors(webOrigin))
 
-	api := r.Group("/api/v1")
+	// Public endpoints (no auth)
+	pub := r.Group("/api/v1")
 	{
-		api.GET("/health", func(c *gin.Context) {
+		pub.GET("/health", func(c *gin.Context) {
 			c.JSON(http.StatusOK, gin.H{"status": "ok", "time": time.Now().UTC()})
 		})
+		pub.POST("/auth/login", login(s))
+	}
+
+	// Protected endpoints (Bearer token)
+	api := r.Group("/api/v1", authRequired(s))
+	{
+		api.GET("/auth/me", me(s))
+		api.PATCH("/auth/profile", updateProfile(s))
+		api.PUT("/auth/password", changePassword(s))
 
 		// Dashboard
 		api.GET("/dashboard/overview", Wrap(func(c *gin.Context) { c.JSON(200, dashboardOverview(s)) }))
@@ -559,4 +570,113 @@ func derefOr(p *int, def int) int {
 func orDefault(v, def string) string {
 	if v == "" { return def }
 	return v
+}
+
+// ---- Auth ----
+
+func authRequired(s *store.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		header := c.GetHeader("Authorization")
+		token := strings.TrimPrefix(header, "Bearer ")
+		if token == "" {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "missing token"})
+			return
+		}
+		email, err := auth.VerifyToken(token)
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired token"})
+			return
+		}
+		u, err := s.GetUserByEmail(email)
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "user no longer exists"})
+			return
+		}
+		c.Set("user", u)
+		c.Next()
+	}
+}
+
+func currentUser(c *gin.Context) *store.User {
+	u, _ := c.Get("user")
+	user, _ := u.(*store.User)
+	return user
+}
+
+func login(s *store.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req struct {
+			Email    string `json:"email"`
+			Password string `json:"password"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(400, gin.H{"error": "email and password are required"})
+			return
+		}
+		token, user, err := auth.Login(s, req.Email, req.Password)
+		if err != nil {
+			c.JSON(401, gin.H{"error": "Invalid email or password"})
+			return
+		}
+		c.JSON(200, gin.H{"token": token, "user": user})
+	}
+}
+
+func me(s *store.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		u, err := s.GetUserByEmail(currentUser(c).Email)
+		if err != nil {
+			c.JSON(401, gin.H{"error": "user not found"})
+			return
+		}
+		c.JSON(200, u)
+	}
+}
+
+func updateProfile(s *store.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req struct {
+			Name  string `json:"name"`
+			Email string `json:"email"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(400, gin.H{"error": err.Error()})
+			return
+		}
+		u, err := s.UpdateProfile(currentUser(c).Email, req.Name, req.Email)
+		if err != nil {
+			c.JSON(400, gin.H{"error": err.Error()})
+			return
+		}
+		token := auth.SignToken(u.Email) // re-issue: email may have changed
+		c.JSON(200, gin.H{"token": token, "user": u})
+	}
+}
+
+func changePassword(s *store.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req struct {
+			Current string `json:"current"`
+			New     string `json:"new"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil || len(req.New) < 8 {
+			c.JSON(400, gin.H{"error": "new password must be at least 8 characters"})
+			return
+		}
+		u, _ := s.GetUserByEmail(currentUser(c).Email)
+		if auth.CheckPassword(u.PasswordHash, req.Current) != nil {
+			c.JSON(400, gin.H{"error": "current password is incorrect"})
+			return
+		}
+		hash, err := auth.HashPassword(req.New)
+		if err != nil {
+			c.JSON(500, gin.H{"error": "failed to hash password"})
+			return
+		}
+		if err := s.UpdatePassword(u.Email, hash); err != nil {
+			c.JSON(500, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(200, gin.H{"ok": true})
+	}
 }

@@ -8,6 +8,7 @@ import (
 
 	"corazium/controlplane/gen/v1"
 	"corazium/controlplane/internal/api"
+	"corazium/controlplane/internal/auth"
 	"corazium/controlplane/internal/config"
 	"corazium/controlplane/internal/grpcsrv"
 	"corazium/controlplane/internal/jobs"
@@ -32,6 +33,7 @@ func main() {
 	st.ClickHouse = store.ConnectClickHouse(ctx, cfg.ClickHouseAddr)
 	st.Redis = store.ConnectRedis(ctx, cfg.RedisAddr)
 	st.LoadFromPostgres(ctx)
+	auth.EnsureDefaultAdmin(ctx, st)
 
 	// REST API for the web UI. `notify` wakes gRPC config streams after
 	// policy mutations so edge nodes hot-reload within the 1s target.

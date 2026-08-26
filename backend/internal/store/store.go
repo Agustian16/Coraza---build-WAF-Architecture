@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"log"
+	"strings"
 	"fmt"
 	"sync"
 	"time"
@@ -28,6 +30,7 @@ type Store struct {
 	ApiEps     map[string]*ApiEndpoint
 	Exposures  map[string]*DataExposure
 	Feeds      map[string]*ThreatFeed
+	Users      map[string]*User // keyed by email
 	Geo        []GeoStat
 	Logs       []AuditLog
 
@@ -55,6 +58,7 @@ func New() *Store {
 		ApiEps:     map[string]*ApiEndpoint{},
 		Exposures:  map[string]*DataExposure{},
 		Feeds:      map[string]*ThreatFeed{},
+		Users:      map[string]*User{},
 
 		ConfigVersion: "v104",
 		VersionSeq:    104,
@@ -447,6 +451,70 @@ func (s *Store) ListExposures() []DataExposure {
 	return out
 }
 
+// ---- Users ----
+
+func (s *Store) GetUserByEmail(email string) (*User, error) {
+	s.mu.RLock(); defer s.mu.RUnlock()
+	u, ok := s.Users[strings.ToLower(email)]
+	if !ok { return nil, fmt.Errorf("user not found") }
+	cp := *u
+	return &cp, nil
+}
+
+func (s *Store) CreateUser(u *User) (*User, error) {
+	s.mu.Lock(); defer s.mu.Unlock()
+	email := strings.ToLower(u.Email)
+	if _, exists := s.Users[email]; exists { return nil, fmt.Errorf("email already registered") }
+	if s.Pool != nil {
+		if _, err := s.Pool.Exec(context.Background(),
+			`INSERT INTO users (email, name, role, password_hash) VALUES ($1,$2,$3,$4)
+			 ON CONFLICT (email) DO NOTHING`, email, u.Name, u.Role, u.PasswordHash); err != nil {
+			log.Printf("[store] persist user: %v", err)
+		}
+	}
+	u.Email = email
+	s.Users[email] = u
+	cp := *u
+	return &cp, nil
+}
+
+func (s *Store) UpdateProfile(email, name, newEmail string) (*User, error) {
+	s.mu.Lock(); defer s.mu.Unlock()
+	u, ok := s.Users[strings.ToLower(email)]
+	if !ok { return nil, fmt.Errorf("user not found") }
+	if name != "" { u.Name = name }
+	if newEmail != "" && newEmail != u.Email {
+		newEmail = strings.ToLower(newEmail)
+		if _, taken := s.Users[newEmail]; taken { return nil, fmt.Errorf("email already registered") }
+		if s.Pool != nil {
+			if _, err := s.Pool.Exec(context.Background(), `UPDATE users SET email=$2 WHERE email=$1`, u.Email, newEmail); err != nil {
+				log.Printf("[store] persist profile: %v", err)
+			}
+		}
+		delete(s.Users, u.Email)
+		u.Email = newEmail
+		s.Users[newEmail] = u
+	} else if s.Pool != nil {
+		if _, err := s.Pool.Exec(context.Background(), `UPDATE users SET name=$2 WHERE email=$1`, u.Email, u.Name); err != nil {
+			log.Printf("[store] persist profile: %v", err)
+		}
+	}
+	cp := *u
+	return &cp, nil
+}
+
+func (s *Store) UpdatePassword(email, hash string) error {
+	s.mu.Lock(); defer s.mu.Unlock()
+	u, ok := s.Users[strings.ToLower(email)]
+	if !ok { return fmt.Errorf("user not found") }
+	u.PasswordHash = hash
+	if s.Pool != nil {
+		if _, err := s.Pool.Exec(context.Background(), `UPDATE users SET password_hash=$2 WHERE email=$1`, u.Email, hash); err != nil {
+			log.Printf("[store] persist password: %v", err)
+		}
+	}
+	return nil
+}
 // ---- Logs / geo ----
 
 func (s *Store) ListLogs() []AuditLog {

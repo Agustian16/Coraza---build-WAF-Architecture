@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   LayoutDashboard,
   Server,
@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { cn, Badge, Button } from "./ui";
 import { ThemeToggle } from "./theme";
+import { getMe, logout, type AuthUser } from "@/lib/api";
 
 const nav = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -36,6 +37,8 @@ const nav = [
 export function Shell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+  const [user, setUser] = useState<AuthUser | null>(null);
+  useEffect(() => { getMe().then(setUser).catch(() => {}); }, []);
 
   return (
     <div className="flex min-h-screen">
@@ -85,9 +88,17 @@ export function Shell({ children }: { children: React.ReactNode }) {
             <CircleUserRound size={20} className="text-muted" />
             <div className="min-w-0 flex-1">
               <div className="truncate text-xs font-medium text-dim">
-                ahmad@secops.corp
+                {user?.email ?? "…"}
               </div>
-              <Badge tone="cyan">SecOps Analyst</Badge>
+              <div className="flex items-center gap-1.5">
+                <Badge tone="cyan">{user?.role ?? "—"}</Badge>
+                <button
+                  onClick={() => logout()}
+                  className="text-[10px] text-faint hover:text-red-400"
+                >
+                  Logout
+                </button>
+              </div>
             </div>
           </div>
         </div>
