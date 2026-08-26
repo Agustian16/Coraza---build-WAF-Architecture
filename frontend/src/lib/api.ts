@@ -20,11 +20,28 @@ import { mockNodes } from "./mock-data";
 
 export const API_BASE = "/api/v1";
 
-const TOKEN_KEY = "corazium_token";
+const TOKEN_COOKIE = "corazium_token";
 
-export const getToken = () => (typeof window === "undefined" ? null : localStorage.getItem(TOKEN_KEY));
-export const setToken = (t: string) => localStorage.setItem(TOKEN_KEY, t);
-export const clearToken = () => localStorage.removeItem(TOKEN_KEY);
+// Token lives in a cookie (readable by the server-side proxy for route
+// guards) — localStorage kept as a mirror for same-tab reads.
+export const getToken = (): string | null => {
+  if (typeof document !== "undefined") {
+    const m = document.cookie.match(new RegExp(`(?:^|; )${TOKEN_COOKIE}=([^;]*)`));
+    if (m) return decodeURIComponent(m[1]);
+  }
+  if (typeof window !== "undefined") return localStorage.getItem(TOKEN_COOKIE);
+  return null;
+};
+
+export const setToken = (t: string) => {
+  document.cookie = `${TOKEN_COOKIE}=${encodeURIComponent(t)}; path=/; max-age=86400; SameSite=Lax`;
+  localStorage.setItem(TOKEN_COOKIE, t);
+};
+
+export const clearToken = () => {
+  document.cookie = `${TOKEN_COOKIE}=; path=/; max-age=0`;
+  localStorage.removeItem(TOKEN_COOKIE);
+};
 
 function headers(): HeadersInit {
   const t = getToken();
