@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Card, CardHeader, PageHeader, Button, Badge, Input, Label, Select, useToast } from "@/components/ui";
 import { Download, RefreshCw, Plus, Trash2 } from "lucide-react";
 import { mockIpList } from "@/lib/mock-data";
-import { addIp as apiAddIp, changePassword, deleteIp, getFeeds, getIpList, getMe, importFeed, policyExportUrl, refreshFeed, setToken, updateProfile, type AuthUser } from "@/lib/api";
+import { addIp as apiAddIp, changePassword, deleteIp, downloadPolicyYaml, getFeeds, getIpList, getMe, importFeed, refreshFeed, setToken, updateProfile, type AuthUser } from "@/lib/api";
 
 interface Feed {
   id: string;
@@ -199,17 +199,15 @@ export default function SettingsPage() {
               via the Coraza CLI before deployment.
             </p>
             <div className="flex gap-2">
-              {policyExportUrl ? (
-                <a href={policyExportUrl} download="coraza-policy.yaml">
-                  <Button>
-                    <Download size={13} /> Export coraza-policy.yaml
-                  </Button>
-                </a>
-              ) : (
-                <Button onClick={() => showToast("Control plane not configured (NEXT_PUBLIC_API_URL unset)", false)}>
-                  <Download size={13} /> Export coraza-policy.yaml
-                </Button>
-              )}
+              <Button
+                onClick={() =>
+                  downloadPolicyYaml()
+                    .then(() => showToast("coraza-policy.yaml downloaded"))
+                    .catch(() => showToast("Failed to export policy", false))
+                }
+              >
+                <Download size={13} /> Export coraza-policy.yaml
+              </Button>
             </div>
           </div>
         </Card>

@@ -203,4 +203,20 @@ export const importFeed = (payload: { name: string; url: string; interval?: stri
 export const refreshFeed = (id: string) => send("POST", `/feeds/${id}/refresh`);
 export const policyExportUrl = "/api/v1/policy/export";
 
+// Downloads the declarative policy with the auth token attached (a plain
+// <a href> cannot send the Authorization header, which would 401).
+export async function downloadPolicyYaml() {
+  const res = await fetch(policyExportUrl, { headers: headers() });
+  if (!res.ok) throw new Error(`export failed (${res.status})`);
+  const text = await res.text();
+  const url = URL.createObjectURL(new Blob([text], { type: "application/x-yaml" }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "coraza-policy.yaml";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 export { mockNodes };
