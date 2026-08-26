@@ -13,6 +13,7 @@ import {
   Select,
   Modal,
   cn,
+  useToast,
   fmtDate,
 } from "@/components/ui";
 import { SecLangEditor } from "@/components/seclang-editor";
@@ -23,7 +24,17 @@ import {
   mockSites,
   sampleSecLang,
 } from "@/lib/mock-data";
-import { getCrsCategories, getRules, getSites } from "@/lib/api";
+import {
+  getCrsCategories,
+  getRules,
+  getSites,
+  toggleCrsCategory,
+  updateSite,
+  createRule,
+  updateRule,
+  deleteRule,
+  testSandbox,
+} from "@/lib/api";
 import type { CustomRule, Site } from "@/lib/types";
 
 const emptyRule: CustomRule = {
@@ -44,10 +55,71 @@ export default function RulesPage() {
   const [editing, setEditing] = useState<CustomRule | null>(null);
   useEffect(() => { getCrsCategories().then(setCategories).catch(() => {}); getRules().then(setRules).catch(() => {}); getSites().then((ss) => { if (ss.length) setSite(ss[0]); }).catch(() => {}); }, []);
   const [mode, setMode] = useState<"visual" | "code">("code");
-  const [sandbox, setSandbox] = useState<null | { matched: boolean; ruleId: number; data: string }>(null);
+  const [sandbox, setSandbox] = useState<null | { result: string; ruleId: number; msg: string; data: string }>(null);
+  const [testPayload, setTestPayload] = useState("' OR '1'='1");
+  const [vb, setVb] = useState({ target: "ARGS", param: "", operator: "@rx", pattern: "", action: "deny", phase: "2", status: "403", severity: "CRITICAL" });
+  const { show: showToast, node: toastNode } = useToast();
+  const [sites, setSites] = useState(mockSites);
+  useEffect(() => { getSites().then(setSites).catch(() => {}); }, []);
 
-  const toggleCategory = (id: string, enabled: boolean) =>
+  const refreshRules = () => getRules().then(setRules).catch(() => {});
+
+  const toggleCategory = (id: string, enabled: boolean) => {
     setCategories((cs) => cs.map((c) => (c.id === id ? { ...c, enabled } : c)));
+    toggleCrsCategory(id, enabled)
+      .then(() => showToast("CRS category updated — config pushed to nodes"))
+      .catch(() => showToast("Failed to reach control plane", false));
+  };
+
+  const savePolicy = () => {
+    updateSite(site.id, {
+      paranoia_level: site.paranoia_level,
+      inbound_threshold: site.inbound_threshold,
+      outbound_threshold: site.outbound_threshold,
+    })
+      .then(() => showToast("Policy saved — new config version pushed to nodes"))
+      .catch(() => showToast("Failed to save policy", false));
+  };
+
+  const saveRule = (override?: string) => {
+    if (!editing) return;
+    const payload = {
+      rule_id: editing.rule_id,
+      name: editing.name,
+      seclang_raw: override ?? editing.seclang_raw,
+      site_id: editing.site_id ?? undefined,
+      is_active: editing.is_active,
+    };
+    const req = rules.some((r) => r.id === editing.id)
+      ? updateRule(editing.id, { name: payload.name, seclang_raw: payload.seclang_raw, is_active: payload.is_active })
+      : createRule(payload);
+    req
+      .then(() => {
+        showToast("Rule saved — deployed to fleet");
+        setEditing(null);
+        refreshRules();
+      })
+      .catch(() => showToast("Failed to save rule", false));
+  };
+
+  const runSandbox = () => {
+    testSandbox(testPayload)
+      .then((res) =>
+        setSandbox({
+          result: res.result,
+          ruleId: res.rule_id,
+          msg: res.message,
+          data: res.matched_data,
+        })
+      )
+      .catch(() => showToast("Sandbox unreachable", false));
+  };
+
+  // Visual Builder form → SecLang (one-way generation on save)
+  const buildSecLangFromVisual = (): string => {
+    const target = vb.param ? `${vb.target}:${vb.param}` : vb.target;
+    return `SecRule ${target} "${vb.operator} ${vb.pattern}" \\\n    "id:${editing?.rule_id ?? 900001},\\\n    phase:${vb.phase},\\\n    ${vb.action},\\\n    status:${vb.status},\\\n    msg:'${editing?.name || "Custom rule"}',\\\n    tag:'custom',\\\n    severity:'${vb.severity}'"`;
+  };
 
   return (
     <>
@@ -57,10 +129,10 @@ export default function RulesPage() {
         actions={
           <Select
             value={site.id}
-            onChange={(e) => setSite(mockSites.find((s) => s.id === e.target.value)!)}
+            onChange={(e) => setSite(sites.find((s) => s.id === e.target.value)!)}
             className="w-56"
           >
-            {mockSites.map((s) => (
+            {sites.map((s) => (
               <option key={s.id} value={s.id}>
                 {s.domain_name}
               </option>
@@ -142,7 +214,7 @@ export default function RulesPage() {
                   />
                 </div>
               </div>
-              <Button variant="primary" onClick={() => alert("Policy saved — will push config v105 to 3 nodes via gRPC.")}>
+              <Button variant="primary" onClick={savePolicy}>
                 <Save size={13} /> Save & Deploy Policy
               </Button>
             </div>
@@ -170,9 +242,9 @@ export default function RulesPage() {
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <Switch checked={r.is_active} onChange={() => setRules((rs) => rs.map((x) => x.id === r.id ? { ...x, is_active: !x.is_active } : x))} label="" />
+                    <Switch checked={r.is_active} onChange={(v) => { setRules((rs) => rs.map((x) => x.id === r.id ? { ...x, is_active: v } : x)); updateRule(r.id, { is_active: v }).then(() => showToast("Rule updated")).catch(() => showToast("Failed to update rule", false)); }} label="" />
                     <Button variant="ghost" onClick={() => { setEditing(r); setSandbox(null); }}>Edit</Button>
-                    <Button variant="ghost" aria-label="Delete" onClick={() => setRules((rs) => rs.filter((x) => x.id !== r.id))}>
+                    <Button variant="ghost" aria-label="Delete" onClick={() => { deleteRule(r.id).then(refreshRules).catch(() => showToast("Failed to delete rule", false)); }}>
                       <Trash2 size={13} />
                     </Button>
                   </div>
@@ -230,7 +302,7 @@ export default function RulesPage() {
               <div className="grid grid-cols-2 gap-4 rounded-lg border border-line bg-bg p-4">
                 <div>
                   <Label>Match Target</Label>
-                  <Select defaultValue="ARGS">
+                  <Select value={vb.target} onChange={(e) => setVb({ ...vb, target: e.target.value })}>
                     {["ARGS", "ARGS_GET", "ARGS_POST", "REQUEST_URI", "REQUEST_HEADERS"].map((v) => (
                       <option key={v}>{v}</option>
                     ))}
@@ -238,11 +310,11 @@ export default function RulesPage() {
                 </div>
                 <div>
                   <Label>Parameter / Key</Label>
-                  <Input placeholder="user_id" />
+                  <Input value={vb.param} onChange={(e) => setVb({ ...vb, param: e.target.value })} placeholder="user_id" />
                 </div>
                 <div>
                   <Label>Operator</Label>
-                  <Select defaultValue="@detectSQLi">
+                  <Select value={vb.operator} onChange={(e) => setVb({ ...vb, operator: e.target.value })}>
                     {["@rx", "@streq", "@contains", "@beginsWith", "@detectSQLi", "@detectXSS"].map((v) => (
                       <option key={v}>{v}</option>
                     ))}
@@ -250,11 +322,11 @@ export default function RulesPage() {
                 </div>
                 <div>
                   <Label>Pattern / Value</Label>
-                  <Input placeholder="(?i)(union\s+select)" />
+                  <Input value={vb.pattern} onChange={(e) => setVb({ ...vb, pattern: e.target.value })} placeholder="(?i)(union\s+select)" />
                 </div>
                 <div>
                   <Label>Action</Label>
-                  <Select defaultValue="deny">
+                  <Select value={vb.action} onChange={(e) => setVb({ ...vb, action: e.target.value })}>
                     {["deny", "pass", "log", "allow"].map((v) => (
                       <option key={v}>{v}</option>
                     ))}
@@ -262,7 +334,7 @@ export default function RulesPage() {
                 </div>
                 <div>
                   <Label>Phase</Label>
-                  <Select defaultValue="2">
+                  <Select value={vb.phase} onChange={(e) => setVb({ ...vb, phase: e.target.value })}>
                     {["1", "2", "3", "4"].map((v) => (
                       <option key={v}>phase:{v}</option>
                     ))}
@@ -270,7 +342,7 @@ export default function RulesPage() {
                 </div>
                 <div>
                   <Label>Status Code</Label>
-                  <Select defaultValue="403">
+                  <Select value={vb.status} onChange={(e) => setVb({ ...vb, status: e.target.value })}>
                     {["403", "404", "406", "501"].map((v) => (
                       <option key={v}>{v}</option>
                     ))}
@@ -278,7 +350,7 @@ export default function RulesPage() {
                 </div>
                 <div>
                   <Label>Severity</Label>
-                  <Select defaultValue="CRITICAL">
+                  <Select value={vb.severity} onChange={(e) => setVb({ ...vb, severity: e.target.value })}>
                     {["CRITICAL", "ERROR", "WARNING", "NOTICE"].map((v) => (
                       <option key={v}>{v}</option>
                     ))}
@@ -291,13 +363,13 @@ export default function RulesPage() {
               <div
                 className={cn(
                   "rounded-lg border px-4 py-3 font-mono text-xs",
-                  sandbox.matched
+                  sandbox.result === "MATCHED"
                     ? "border-emerald-800 bg-emerald-950/40 text-emerald-300"
                     : "border-line2 bg-bg text-muted"
                 )}
               >
                 FTW Sandbox Result:{" "}
-                <strong>{sandbox.matched ? "MATCHED" : "PASSED"}</strong> · triggered rule id:
+                <strong>{sandbox.result}</strong> · triggered rule id:
                 {sandbox.ruleId} · matched data: &quot;{sandbox.data}&quot;
               </div>
             )}
@@ -307,14 +379,20 @@ export default function RulesPage() {
                 ✓ Syntax Validated (0 errors, 0 warnings)
               </span>
               <div className="flex gap-2">
-                <Button
-                  onClick={() =>
-                    setSandbox({ matched: true, ruleId: editing.rule_id, data: "' OR '1'='1" })
-                  }
-                >
+                <Input value={testPayload} onChange={(e) => setTestPayload(e.target.value)} placeholder="Test payload" className="w-56" />
+                <Button onClick={runSandbox}>
                   <FlaskConical size={13} /> Test Sandbox
                 </Button>
-                <Button variant="primary" onClick={() => setEditing(null)}>
+                <Button
+                  variant="primary"
+                  onClick={() => {
+                    if (mode === "visual" && editing) {
+                      saveRule(buildSecLangFromVisual());
+                    } else {
+                      saveRule();
+                    }
+                  }}
+                >
                   <Save size={13} /> Save
                 </Button>
               </div>
@@ -322,6 +400,7 @@ export default function RulesPage() {
           </div>
         )}
       </Modal>
+      {toastNode}
     </>
   );
 }

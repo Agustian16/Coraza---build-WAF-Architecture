@@ -88,17 +88,53 @@ export const createException = (payload: {
   parameter_name?: string;
   reason: string;
 }) => send("POST", "/exceptions", payload);
+export const deleteException = (id: string) => send("DELETE", `/exceptions/${id}`);
 export const addIp = (cidr: string, list: "allow" | "block") =>
   send("POST", "/ip-list", { cidr, list });
+export const deleteIp = (id: string) => send("DELETE", `/ip-list/${id}`);
 export const updateRateLimit = (id: string, payload: { enabled?: boolean; action?: string }) =>
   send("PATCH", `/rate-limits/${id}`, payload);
+export const addRateLimit = (payload: {
+  name: string;
+  endpoint: string;
+  threshold: number;
+  window_sec?: number;
+  action?: string;
+}) => send("POST", "/rate-limits", payload);
+export const deleteRateLimit = (id: string) => send("DELETE", `/rate-limits/${id}`);
 export const updateBotAction = (id: string, action: string) =>
   send("PATCH", `/bots/${id}`, { action });
+export const createRule = (payload: {
+  rule_id: number;
+  name: string;
+  seclang_raw: string;
+  site_id?: string;
+  is_active?: boolean;
+}) => send("POST", "/rules", payload);
+export const updateRule = (
+  id: string,
+  payload: { name?: string; seclang_raw?: string; is_active?: boolean }
+) => send("PATCH", `/rules/${id}`, payload);
+export const deleteRule = (id: string) => send("DELETE", `/rules/${id}`);
 export const testSandbox = (payload: string) =>
   send<{ result: string; rule_id: number; message: string; matched_data: string }>(
     "POST",
     "/rules/sandbox",
     { payload }
   );
+export const registerNode = (payload: {
+  node_name: string;
+  ip_address: string;
+  version?: string;
+  crs_version?: string;
+}) => send<{ node: CorazaNode; config_version: string }>("POST", "/nodes", payload);
+export const getFeeds = () =>
+  get<
+    { id: string; name: string; url: string; interval: string; status: string; last_sync: string }[]
+  >("/feeds");
+export const importFeed = (payload: { name: string; url: string; interval?: string }) =>
+  send("POST", "/feeds", payload);
+export const refreshFeed = (id: string) => send("POST", `/feeds/${id}/refresh`);
+export const policyExportUrl = API_BASE ? `${API_BASE}/policy/export` : "";
 
 export { mockNodes };

@@ -5,8 +5,6 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
-	"os"
-	"path/filepath"
 
 	_ "github.com/ClickHouse/clickhouse-go/v2"
 )
@@ -55,12 +53,4 @@ func InsertLogsClickHouse(db interface{}, logs []AuditLog) error {
 		}
 	}
 	return tx.Commit()
-}
-
-func migrationSQL(dir string) (string, error) {
-	b, err := os.ReadFile(filepath.Join(dir, "001_init.sql"))
-	if err != nil {
-		return "", err
-	}
-	return string(b), nil
 }

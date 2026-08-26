@@ -10,10 +10,11 @@ import {
   Modal,
   Input,
   Label,
+  useToast,
 } from "@/components/ui";
 import { Plus, RefreshCw, Cpu, MemoryStick } from "lucide-react";
 import { mockNodes } from "@/lib/mock-data";
-import { getNodes } from "@/lib/api";
+import { getNodes, registerNode } from "@/lib/api";
 import type { CorazaNode } from "@/lib/types";
 
 function statusTone(s: CorazaNode["status"]) {
@@ -22,8 +23,11 @@ function statusTone(s: CorazaNode["status"]) {
 
 export default function FleetPage() {
   const [nodes, setNodes] = useState(mockNodes);
-  useEffect(() => { getNodes().then(setNodes).catch(() => {}); }, []);
   const [registerOpen, setRegisterOpen] = useState(false);
+  const [form, setForm] = useState({ node_name: "", ip_address: "" });
+  const { show: showToast, node: toastNode } = useToast();
+  const refresh = () => getNodes().then(setNodes).catch(() => {});
+  useEffect(() => { refresh(); }, []);
 
   return (
     <>
@@ -32,7 +36,7 @@ export default function FleetPage() {
         description="Coraza edge nodes registered to this control plane via gRPC (mTLS)"
         actions={
           <>
-            <Button>
+            <Button onClick={refresh}>
               <RefreshCw size={13} /> Refresh
             </Button>
             <Button variant="primary" onClick={() => setRegisterOpen(true)}>
@@ -117,21 +121,36 @@ export default function FleetPage() {
         <div className="space-y-4">
           <div>
             <Label>Node Name</Label>
-            <Input placeholder="edge-jkt-caddy-04" />
+            <Input placeholder="edge-jkt-caddy-04" value={form.node_name} onChange={(e) => setForm({ ...form, node_name: e.target.value })} />
           </div>
           <div>
             <Label>IP Address / Hostname</Label>
-            <Input placeholder="10.10.3.20" />
+            <Input placeholder="10.10.3.20" value={form.ip_address} onChange={(e) => setForm({ ...form, ip_address: e.target.value })} />
           </div>
           <div>
             <Label>Enrollment Token</Label>
             <Input placeholder="czc_••••••••••••••••••••••••" />
           </div>
-          <Button variant="primary" className="w-full justify-center" onClick={() => setRegisterOpen(false)}>
+          <Button
+            variant="primary"
+            className="w-full justify-center"
+            onClick={() => {
+              if (!form.node_name) return;
+              registerNode({ node_name: form.node_name, ip_address: form.ip_address })
+                .then((res) => {
+                  showToast(`Node ${form.node_name} registered — config ${res.config_version} pushed`);
+                  setRegisterOpen(false);
+                  setForm({ node_name: "", ip_address: "" });
+                  refresh();
+                })
+                .catch(() => showToast("Failed to register node", false));
+            }}
+          >
             Generate Agent Config
           </Button>
         </div>
       </Modal>
+      {toastNode}
     </>
   );
 }

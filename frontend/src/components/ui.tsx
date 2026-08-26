@@ -1,7 +1,30 @@
+import { useState } from "react";
 import clsx from "clsx";
 
 export function cn(...parts: Parameters<typeof clsx>) {
   return clsx(parts);
+}
+
+// useToast — tiny inline notification for API mutation feedback.
+export function useToast() {
+  const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
+  const show = (text: string, ok = true) => {
+    setMsg({ text, ok });
+    setTimeout(() => setMsg(null), 3000);
+  };
+  const node = msg ? (
+    <div
+      className={cn(
+        "fixed bottom-6 left-1/2 z-[60] -translate-x-1/2 rounded-lg border px-4 py-2.5 text-xs shadow-xl backdrop-blur",
+        msg.ok
+          ? "border-emerald-800 bg-emerald-950/90 text-emerald-200"
+          : "border-red-800 bg-red-950/90 text-red-200"
+      )}
+    >
+      {msg.text}
+    </div>
+  ) : null;
+  return { show, node };
 }
 
 // Deterministic date rendering — locale/timezone-dependent Date methods

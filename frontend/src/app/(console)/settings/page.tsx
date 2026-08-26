@@ -1,30 +1,56 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Card, CardHeader, PageHeader, Button, Badge, Input, Label, Select } from "@/components/ui";
-import { Download, Upload, Plus, Trash2 } from "lucide-react";
+import { Card, CardHeader, PageHeader, Button, Badge, Input, Label, Select, useToast } from "@/components/ui";
+import { Download, RefreshCw, Plus, Trash2 } from "lucide-react";
 import { mockIpList } from "@/lib/mock-data";
-import { getIpList } from "@/lib/api";
+import { addIp as apiAddIp, deleteIp, getFeeds, getIpList, importFeed, policyExportUrl, refreshFeed } from "@/lib/api";
+
+interface Feed {
+  id: string;
+  name: string;
+  url: string;
+  interval: string;
+  status: string;
+  last_sync: string;
+}
 
 export default function SettingsPage() {
   const [ipList, setIpList] = useState(mockIpList);
-  useEffect(() => { getIpList().then(setIpList).catch(() => {}); }, []);
+  const [feeds, setFeeds] = useState<Feed[]>([]);
   const [cidr, setCidr] = useState("");
   const [listType, setListType] = useState<"allow" | "block">("block");
+  const [feedUrl, setFeedUrl] = useState("");
+  const { show: showToast, node: toastNode } = useToast();
 
-  const addIp = () => {
+  const refreshIps = () => getIpList().then(setIpList).catch(() => {});
+  const refreshFeeds = () => getFeeds().then(setFeeds).catch(() => {});
+  useEffect(() => {
+    getIpList().then(setIpList).catch(() => {});
+    getFeeds().then(setFeeds).catch(() => {});
+  }, []);
+
+  const handleAddIp = () => {
     if (!cidr.trim()) return;
-    setIpList((l) => [
-      ...l,
-      {
-        id: crypto.randomUUID(),
-        cidr: cidr.trim(),
-        list: listType,
-        source: "manual",
-        added_at: new Date().toISOString(),
-      },
-    ]);
-    setCidr("");
+    apiAddIp(cidr.trim(), listType)
+      .then(() => {
+        showToast(`${cidr.trim()} added to ${listType}list`);
+        setCidr("");
+        refreshIps();
+      })
+      .catch(() => showToast("Failed to add entry", false));
+  };
+
+  const handleImportFeed = () => {
+    if (!feedUrl.trim()) return;
+    const name = feedUrl.split("/").pop()?.replace(/\.[a-z]+$/, "") || "custom_feed";
+    importFeed({ name, url: feedUrl.trim() })
+      .then(() => {
+        showToast("Threat feed imported");
+        setFeedUrl("");
+        refreshFeeds();
+      })
+      .catch(() => showToast("Failed to import feed", false));
   };
 
   return (
@@ -47,8 +73,8 @@ export default function SettingsPage() {
                 <option value="block">Block</option>
                 <option value="allow">Allow</option>
               </Select>
-              <Input placeholder="192.168.1.0/24" value={cidr} onChange={(e) => setCidr(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addIp()} />
-              <Button variant="primary" onClick={addIp}>
+              <Input placeholder="192.168.1.0/24" value={cidr} onChange={(e) => setCidr(e.target.value)} onKeyDown={(e) => e.key === "Enter" && handleAddIp()} />
+              <Button variant="primary" onClick={handleAddIp}>
                 <Plus size={13} /> Add
               </Button>
             </div>
@@ -64,7 +90,7 @@ export default function SettingsPage() {
                   </span>
                   <button
                     aria-label={`Remove ${e.cidr}`}
-                    onClick={() => setIpList((l) => l.filter((x) => x.id !== e.id))}
+                    onClick={() => deleteIp(e.id).then(refreshIps).catch(() => showToast("Failed to remove", false))}
                     className="w-5 shrink-0 text-center text-faint hover:text-red-400"
                   >
                     <Trash2 size={13} />
@@ -78,23 +104,37 @@ export default function SettingsPage() {
         <Card>
           <CardHeader title="Threat Intelligence Feeds" subtitle="Auto-pull plain text / CSV blocklist URLs" />
           <div className="space-y-4 p-5">
-            {[
-              { name: "firehol_level1", url: "https://iplists.firehol.org/files/firehol_level1.netset", interval: "6h", status: "SYNCED" },
-              { name: "abuseipdb_high_confidence", url: "https://api.abuseipdb.com/blacklist", interval: "12h", status: "SYNCED" },
-            ].map((f) => (
-              <div key={f.name} className="flex items-center justify-between gap-3 rounded-lg border border-line bg-bg p-3">
-                <div className="min-w-0">
-                  <div className="font-mono text-xs text-ink">{f.name}</div>
-                  <div className="truncate font-mono text-[10px] text-faint">{f.url}</div>
+            <div className="divide-y divide-line/60 rounded-lg border border-line">
+              {feeds.map((f) => (
+                <div key={f.id} className="flex items-center justify-between gap-3 px-3 py-2.5">
+                  <div className="min-w-0">
+                    <div className="font-mono text-xs text-ink">
+                      {f.name} <span className="text-faint">· {f.interval}</span>
+                    </div>
+                    <div className="truncate font-mono text-[10px] text-faint">{f.url}</div>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <Badge tone={f.status === "SYNCED" ? "green" : f.status === "ERROR" ? "red" : "amber"}>{f.status}</Badge>
+                    <button
+                      aria-label={`Refresh ${f.name}`}
+                      onClick={() => refreshFeed(f.id).then(refreshFeeds).catch(() => showToast("Refresh failed", false))}
+                      className="text-faint hover:text-cyan-400"
+                    >
+                      <RefreshCw size={13} />
+                    </button>
+                    <span className="hidden font-mono text-[10px] text-faint sm:block">
+                      {f.last_sync ? f.last_sync.slice(0, 10) : "—"}
+                    </span>
+                  </div>
                 </div>
-                <Badge tone="green">{f.status}</Badge>
-              </div>
-            ))}
+              ))}
+            </div>
             <div className="space-y-3 border-t border-line pt-4">
               <Label>Import New Feed URL</Label>
-              <Input placeholder="https://example.com/blocklist.txt" />
-              <Button>
-                <Upload size={13} /> Import Feed
+              <Input placeholder="https://example.com/blocklist.txt" value={feedUrl} onChange={(e) => setFeedUrl(e.target.value)} onKeyDown={(e) => e.key === "Enter" && handleImportFeed()} />
+              <Button onClick={handleImportFeed}>
+                <Download size={13} className="hidden" />
+                <RefreshCw size={13} /> Import Feed
               </Button>
             </div>
           </div>
@@ -112,14 +152,22 @@ export default function SettingsPage() {
               via the Coraza CLI before deployment.
             </p>
             <div className="flex gap-2">
-              <Button onClick={() => alert("coraza-policy.yaml generated (mock)")}>
-                <Download size={13} /> Export coraza-policy.yaml
-              </Button>
-              <Button variant="ghost">View CI Pipeline Docs</Button>
+              {policyExportUrl ? (
+                <a href={policyExportUrl} download="coraza-policy.yaml">
+                  <Button>
+                    <Download size={13} /> Export coraza-policy.yaml
+                  </Button>
+                </a>
+              ) : (
+                <Button onClick={() => showToast("Control plane not configured (NEXT_PUBLIC_API_URL unset)", false)}>
+                  <Download size={13} /> Export coraza-policy.yaml
+                </Button>
+              )}
             </div>
           </div>
         </Card>
       </div>
+      {toastNode}
     </>
   );
 }

@@ -1,9 +1,12 @@
 package store
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // Store is the in-memory state of the control plane. It is seeded with demo
@@ -24,6 +27,7 @@ type Store struct {
 	Bots       map[string]*BotCategory
 	ApiEps     map[string]*ApiEndpoint
 	Exposures  map[string]*DataExposure
+	Feeds      map[string]*ThreatFeed
 	Geo        []GeoStat
 	Logs       []AuditLog
 
@@ -32,7 +36,7 @@ type Store struct {
 	VersionSeq    int
 
 	// Optional backends (nil when not configured)
-	PG        interface{} // *pgxpool.Pool (kept untyped to avoid hard dep when unused)
+	Pool      *pgxpool.Pool // nil => in-memory mode
 	ClickHouse interface{}
 	Redis     interface{}
 }
@@ -50,6 +54,7 @@ func New() *Store {
 		Bots:       map[string]*BotCategory{},
 		ApiEps:     map[string]*ApiEndpoint{},
 		Exposures:  map[string]*DataExposure{},
+		Feeds:      map[string]*ThreatFeed{},
 
 		ConfigVersion: "v104",
 		VersionSeq:    104,
@@ -134,6 +139,7 @@ func (s *Store) UpdateSite(id string, paranoia, in, out int) (*Site, bool) {
 	if !ok { return nil, false }
 	site.ParanoiaLevel, site.InboundThreshold, site.OutboundThreshold = paranoia, in, out
 	s.nextVersion()
+	s.saveSiteRow(context.Background(), site)
 	cp := *site
 	return &cp, true
 }
@@ -151,6 +157,7 @@ func (s *Store) ToggleCrsCategory(id string, enabled bool) (*CrsCategory, bool) 
 	if !ok { return nil, false }
 	c.Enabled = enabled
 	s.nextVersion()
+	s.saveCrsRow(context.Background(), c)
 	cp := *c
 	return &cp, true
 }
@@ -193,6 +200,7 @@ func (s *Store) CreateRule(r *CustomRule) *CustomRule {
 	r.CreatedAt = now()
 	s.Rules[r.ID] = r
 	s.nextVersion()
+	s.saveRuleRow(context.Background(), r)
 	cp := *r
 	return &cp
 }
@@ -203,15 +211,18 @@ func (s *Store) UpdateRule(id string, mutate func(*CustomRule)) (*CustomRule, bo
 	if !ok { return nil, false }
 	mutate(r)
 	s.nextVersion()
+	s.saveRuleRow(context.Background(), r)
 	cp := *r
 	return &cp, true
 }
 
 func (s *Store) DeleteRule(id string) bool {
 	s.mu.Lock(); defer s.mu.Unlock()
-	if _, ok := s.Rules[id]; !ok { return false }
+	r, ok := s.Rules[id]
+	if !ok { return false }
 	delete(s.Rules, id)
 	s.nextVersion()
+	s.deleteRuleRow(context.Background(), r.RuleID)
 	return true
 }
 
@@ -277,6 +288,7 @@ func (s *Store) CreateException(x *RuleException) *RuleException {
 	x.CreatedAt = now()
 	s.Exceptions[x.ID] = x
 	s.nextVersion()
+	s.saveExceptionRow(context.Background(), x)
 	cp := *x
 	return &cp
 }
@@ -286,6 +298,7 @@ func (s *Store) DeleteException(id string) bool {
 	if _, ok := s.Exceptions[id]; !ok { return false }
 	delete(s.Exceptions, id)
 	s.nextVersion()
+	s.deleteExceptionRow(context.Background(), id)
 	return true
 }
 
@@ -304,6 +317,7 @@ func (s *Store) AddIp(e *IpListEntry) *IpListEntry {
 	e.AddedAt = now()
 	s.IpList[e.ID] = e
 	s.nextVersion()
+	s.saveIpRow(context.Background(), e)
 	cp := *e
 	return &cp
 }
@@ -313,7 +327,49 @@ func (s *Store) DeleteIp(id string) bool {
 	if _, ok := s.IpList[id]; !ok { return false }
 	delete(s.IpList, id)
 	s.nextVersion()
+	s.deleteIpRow(context.Background(), id)
 	return true
+}
+
+// ---- Threat feeds ----
+
+func (s *Store) ListFeeds() []ThreatFeed {
+	s.mu.RLock(); defer s.mu.RUnlock()
+	out := make([]ThreatFeed, 0, len(s.Feeds))
+	for _, x := range s.Feeds { out = append(out, *x) }
+	return out
+}
+
+func (s *Store) AddFeed(f *ThreatFeed) *ThreatFeed {
+	s.mu.Lock(); defer s.mu.Unlock()
+	f.ID = fmt.Sprintf("feed-%03d", len(s.Feeds)+1)
+	if f.Interval == "" { f.Interval = "6h" }
+	f.Status = "PENDING"
+	s.Feeds[f.ID] = f
+	s.saveFeedRow(context.Background(), f)
+	cp := *f
+	return &cp
+}
+
+func (s *Store) DeleteFeed(id string) bool {
+	s.mu.Lock(); defer s.mu.Unlock()
+	if _, ok := s.Feeds[id]; !ok { return false }
+	delete(s.Feeds, id)
+	s.deleteFeedRow(context.Background(), id)
+	return true
+}
+
+// RefreshFeed simulates a feed pull: in production the Asynq task fetches the
+// URL, parses CIDRs and merges them into the blocklist.
+func (s *Store) RefreshFeed(id string) (*ThreatFeed, bool) {
+	s.mu.Lock(); defer s.mu.Unlock()
+	f, ok := s.Feeds[id]
+	if !ok { return nil, false }
+	f.Status = "SYNCED"
+	f.LastSync = now()
+	s.saveFeedRow(context.Background(), f)
+	cp := *f
+	return &cp, true
 }
 
 // ---- Access events / rate limits / bots / api security ----
@@ -332,12 +388,32 @@ func (s *Store) ListRateLimits() []RateLimitRule {
 	return out
 }
 
+func (s *Store) AddRateLimit(r *RateLimitRule) *RateLimitRule {
+	s.mu.Lock(); defer s.mu.Unlock()
+	r.ID = fmt.Sprintf("rl-%03d", len(s.RateLimits)+1)
+	s.RateLimits[r.ID] = r
+	s.nextVersion()
+	s.saveRateLimitRow(context.Background(), r)
+	cp := *r
+	return &cp
+}
+
+func (s *Store) DeleteRateLimit(id string) bool {
+	s.mu.Lock(); defer s.mu.Unlock()
+	if _, ok := s.RateLimits[id]; !ok { return false }
+	delete(s.RateLimits, id)
+	s.nextVersion()
+	s.deleteRateLimitRow(context.Background(), id)
+	return true
+}
+
 func (s *Store) UpdateRateLimit(id string, mutate func(*RateLimitRule)) (*RateLimitRule, bool) {
 	s.mu.Lock(); defer s.mu.Unlock()
 	r, ok := s.RateLimits[id]
 	if !ok { return nil, false }
 	mutate(r)
 	cp := *r
+	s.saveRateLimitRow(context.Background(), r)
 	return &cp, true
 }
 

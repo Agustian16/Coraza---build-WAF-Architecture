@@ -10,10 +10,11 @@ import {
   Input,
   Select,
   cn,
+  useToast,
 } from "@/components/ui";
 import { X, Ban, ShieldOff } from "lucide-react";
 import { mockLogs } from "@/lib/mock-data";
-import { getLogs } from "@/lib/api";
+import { addIp, createException, getLogs } from "@/lib/api";
 import type { AuditLog } from "@/lib/types";
 
 export default function LogsPage() {
@@ -23,7 +24,7 @@ export default function LogsPage() {
   const [selected, setSelected] = useState<AuditLog | null>(null);
   const [logRows, setLogRows] = useState(mockLogs);
   useEffect(() => { getLogs().then(setLogRows).catch(() => {}); }, []);
-  const [toast, setToast] = useState<string | null>(null);
+  const { show: showToast, node: toastNode } = useToast();
 
   const logs = useMemo(
     () =>
@@ -44,10 +45,7 @@ export default function LogsPage() {
     }
   };
 
-  const notify = (msg: string) => {
-    setToast(msg);
-    setTimeout(() => setToast(null), 2500);
-  };
+  const notify = (msg: string, ok = true) => showToast(msg, ok);
 
   return (
     <>
@@ -229,15 +227,22 @@ export default function LogsPage() {
               <div className="flex flex-wrap gap-2 border-t border-line pt-4">
                 <Button
                   variant="primary"
-                  onClick={() =>
-                    notify(`Exception created: SecRuleUpdateTargetById ${selected.matched_rule_ids[0]} for ${selected.uri.split("?")[0]} — queued for deploy`)
-                  }
+                  onClick={() => {
+                    const path = selected.uri.split("?")[0];
+                    createException({
+                      rule_id: selected.matched_rule_ids[0],
+                      path_pattern: path,
+                      reason: `One-click exception from ${selected.transaction_id}`,
+                    })
+                      .then(() => notify(`Exception created: SecRuleUpdateTargetById ${selected.matched_rule_ids[0]} for ${path} — deployed`))
+                      .catch(() => notify("Failed to create exception", false));
+                  }}
                 >
                   <ShieldOff size={13} /> Disable Rule for this Endpoint
                 </Button>
                 <Button
                   variant="danger"
-                  onClick={() => notify(`${selected.client_ip}/32 added to central blocklist`)}
+                  onClick={() => addIp(`${selected.client_ip}/32`, "block").then(() => notify(`${selected.client_ip}/32 added to central blocklist`)).catch(() => notify("Failed to add IP", false))}
                 >
                   <Ban size={13} /> Add IP to Blacklist
                 </Button>
@@ -247,11 +252,7 @@ export default function LogsPage() {
         </div>
       )}
 
-      {toast && (
-        <div className="fixed bottom-6 left-1/2 z-[60] -translate-x-1/2 rounded-lg border border-emerald-800 bg-emerald-950/90 px-4 py-2.5 text-xs text-emerald-200 shadow-xl backdrop-blur">
-          {toast}
-        </div>
-      )}
+      {toastNode}
     </>
   );
 }

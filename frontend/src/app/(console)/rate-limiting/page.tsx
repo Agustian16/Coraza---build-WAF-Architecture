@@ -11,6 +11,8 @@ import {
   Input,
   Label,
   Select,
+  Modal,
+  useToast,
 } from "@/components/ui";
 import { Plus, Gauge } from "lucide-react";
 import {
@@ -22,12 +24,17 @@ import {
   Tooltip,
 } from "recharts";
 import { mockRateLimitRules, rateLimitStats } from "@/lib/mock-data";
-import { getRateLimits } from "@/lib/api";
+import { addRateLimit, getRateLimits, updateRateLimit } from "@/lib/api";
 
 const actionTone = { BLOCK: "red", TARPIT: "amber", CAPTCHA: "cyan" } as const;
 
 export default function RateLimitingPage() {
   const [rules, setRules] = useState(mockRateLimitRules);
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState({ name: "", endpoint: "", threshold: 100, window_sec: 60, action: "BLOCK" });
+  const { show: showToast, node: toastNode } = useToast();
+  const [quick, setQuick] = useState({ endpoint: "", threshold: 100, window_sec: 60 });
+  const refresh = () => getRateLimits().then(setRules).catch(() => {});
   useEffect(() => { getRateLimits().then(setRules).catch(() => {}); }, []);
 
   return (
@@ -101,23 +108,7 @@ export default function RateLimitingPage() {
           title="Rate Limit Rules"
           subtitle={`${rules.filter((r) => r.enabled).length}/${rules.length} active`}
           right={
-            <Button
-              variant="primary"
-              onClick={() =>
-                setRules((rs) => [
-                  ...rs,
-                  {
-                    id: `rl-${crypto.randomUUID().slice(0, 6)}`,
-                    name: "RL_NEW_RULE",
-                    endpoint: "*",
-                    threshold: 100,
-                    window_sec: 60,
-                    action: "BLOCK",
-                    enabled: true,
-                  },
-                ])
-              }
-            >
+            <Button variant="primary" onClick={() => setOpen(true)}>
               <Plus size={13} /> New Rule
             </Button>
           }
@@ -135,9 +126,11 @@ export default function RateLimitingPage() {
               <div className="hidden lg:block">
                 <Select
                   value={r.action}
-                  onChange={(e) =>
-                    setRules((rs) => rs.map((x) => x.id === r.id ? { ...x, action: e.target.value as typeof r.action } : x))
-                  }
+                  onChange={(e) => {
+                    const action = e.target.value as typeof r.action;
+                    setRules((rs) => rs.map((x) => x.id === r.id ? { ...x, action } : x));
+                    updateRateLimit(r.id, { action }).then(() => showToast("Action updated")).catch(() => showToast("Failed to update", false));
+                  }}
                   className="w-32"
                 >
                   {(["BLOCK", "TARPIT", "CAPTCHA"] as const).map((a) => (
@@ -150,7 +143,7 @@ export default function RateLimitingPage() {
               </div>
               <Switch
                 checked={r.enabled}
-                onChange={(v) => setRules((rs) => rs.map((x) => x.id === r.id ? { ...x, enabled: v } : x))}
+                onChange={(v) => { setRules((rs) => rs.map((x) => x.id === r.id ? { ...x, enabled: v } : x)); updateRateLimit(r.id, { enabled: v }).then(() => showToast("Rule updated")).catch(() => showToast("Failed to update rule", false)); }}
                 label=""
               />
             </div>
@@ -161,12 +154,94 @@ export default function RateLimitingPage() {
       <Card className="mt-5 p-5">
         <Label>Add Custom Threshold</Label>
         <div className="mt-1 flex flex-wrap gap-2">
-          <Input placeholder="/api/v1/orders" className="w-56" />
-          <Input type="number" placeholder="Threshold (req)" className="w-36" />
-          <Input type="number" placeholder="Window (sec)" className="w-32" />
-          <Button variant="primary">Create Rule</Button>
+          <Input
+            placeholder="/api/v1/orders"
+            className="w-56"
+            value={quick.endpoint}
+            onChange={(e) => setQuick({ ...quick, endpoint: e.target.value })}
+          />
+          <Input
+            type="number"
+            placeholder="Threshold (req)"
+            className="w-36"
+            value={quick.threshold || ""}
+            onChange={(e) => setQuick({ ...quick, threshold: +e.target.value })}
+          />
+          <Input
+            type="number"
+            placeholder="Window (sec)"
+            className="w-32"
+            value={quick.window_sec || ""}
+            onChange={(e) => setQuick({ ...quick, window_sec: +e.target.value })}
+          />
+          <Button
+            variant="primary"
+            onClick={() =>
+              addRateLimit({
+                name: `RL_CUSTOM_${Date.now().toString().slice(-6)}`,
+                endpoint: quick.endpoint || "*",
+                threshold: quick.threshold,
+                window_sec: quick.window_sec,
+              })
+                .then(() => {
+                  showToast("Rate limit rule created");
+                  refresh();
+                })
+                .catch(() => showToast("Failed to create rule", false))
+            }
+          >
+            Create Rule
+          </Button>
         </div>
       </Card>
+
+      <Modal open={open} onClose={() => setOpen(false)} title="New Rate Limit Rule">
+        <div className="space-y-4">
+          <div>
+            <Label>Rule Name</Label>
+            <Input placeholder="RL_LOGIN_BRUTEFORCE" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+          </div>
+          <div>
+            <Label>Endpoint</Label>
+            <Input placeholder="api.domain.com/api/v1/login" value={form.endpoint} onChange={(e) => setForm({ ...form, endpoint: e.target.value })} />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <Label>Threshold (requests)</Label>
+              <Input type="number" value={form.threshold} onChange={(e) => setForm({ ...form, threshold: +e.target.value })} />
+            </div>
+            <div>
+              <Label>Window (seconds)</Label>
+              <Input type="number" value={form.window_sec} onChange={(e) => setForm({ ...form, window_sec: +e.target.value })} />
+            </div>
+          </div>
+          <div>
+            <Label>Action</Label>
+            <Select value={form.action} onChange={(e) => setForm({ ...form, action: e.target.value })}>
+              {["BLOCK", "TARPIT", "CAPTCHA"].map((a) => (
+                <option key={a}>{a}</option>
+              ))}
+            </Select>
+          </div>
+          <Button
+            variant="primary"
+            className="w-full justify-center"
+            onClick={() => {
+              if (!form.name || form.threshold <= 0) return;
+              addRateLimit(form)
+                .then(() => {
+                  setOpen(false);
+                  showToast("Rate limit rule created — pushed to nodes");
+                  refresh();
+                })
+                .catch(() => showToast("Failed to create rule", false));
+            }}
+          >
+            Create Rule
+          </Button>
+        </div>
+      </Modal>
+      {toastNode}
     </>
   );
 }

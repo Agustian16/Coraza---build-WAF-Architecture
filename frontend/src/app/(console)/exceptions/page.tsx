@@ -1,13 +1,16 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Card, CardHeader, PageHeader, Button, Badge, EmptyState, fmtDate } from "@/components/ui";
+import { Card, CardHeader, PageHeader, Button, Badge, EmptyState, fmtDate, Modal, Input, Label, useToast } from "@/components/ui";
 import { Plus, Trash2 } from "lucide-react";
 import { mockExceptions, mockSites } from "@/lib/mock-data";
-import { getExceptions } from "@/lib/api";
+import { createException, deleteException, getExceptions } from "@/lib/api";
 
 export default function ExceptionsPage() {
   const [exceptions, setExceptions] = useState(mockExceptions);
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState({ rule_id: 942100, path_pattern: "", parameter_name: "", reason: "" });
+  const { show: showToast, node: toastNode } = useToast();
   useEffect(() => { getExceptions().then(setExceptions).catch(() => {}); }, []);
 
   return (
@@ -16,7 +19,7 @@ export default function ExceptionsPage() {
         title="False Positive Exceptions"
         description="Rule suppressions generated via one-click exception — deployed as SecRuleUpdateTargetById"
         actions={
-          <Button variant="primary">
+          <Button variant="primary" onClick={() => setOpen(true)}>
             <Plus size={13} /> New Exception
           </Button>
         }
@@ -58,7 +61,7 @@ export default function ExceptionsPage() {
                         <Badge tone="slate">{e.created_by.split("@")[0]}</Badge>
                       </td>
                       <td className="px-5 py-3 text-right">
-                        <Button variant="ghost" aria-label="Revoke" onClick={() => setExceptions((xs) => xs.filter((x) => x.id !== e.id))}>
+                        <Button variant="ghost" aria-label="Revoke" onClick={() => deleteException(e.id).then(() => getExceptions().then(setExceptions)).catch(() => showToast("Failed to delete exception", false))}>
                           <Trash2 size={13} />
                         </Button>
                       </td>
@@ -70,6 +73,44 @@ export default function ExceptionsPage() {
           </div>
         )}
       </Card>
+
+      <Modal open={open} onClose={() => setOpen(false)} title="New Exception">
+        <div className="space-y-4">
+          <div>
+            <Label>Rule ID</Label>
+            <Input type="number" value={form.rule_id} onChange={(e) => setForm({ ...form, rule_id: +e.target.value })} />
+          </div>
+          <div>
+            <Label>Path Pattern</Label>
+            <Input placeholder="/api/v1/upload/*" value={form.path_pattern} onChange={(e) => setForm({ ...form, path_pattern: e.target.value })} />
+          </div>
+          <div>
+            <Label>Parameter (optional)</Label>
+            <Input placeholder="ARGS:file_description" value={form.parameter_name} onChange={(e) => setForm({ ...form, parameter_name: e.target.value })} />
+          </div>
+          <div>
+            <Label>Reason</Label>
+            <Input placeholder="Why is this a false positive?" value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} />
+          </div>
+          <Button
+            variant="primary"
+            className="w-full justify-center"
+            onClick={() => {
+              if (!form.path_pattern) return;
+              createException(form)
+                .then(() => {
+                  setOpen(false);
+                  showToast("Exception created — SecRuleUpdateTargetById deployed");
+                  getExceptions().then(setExceptions).catch(() => {});
+                })
+                .catch(() => showToast("Failed to create exception", false));
+            }}
+          >
+            Create Exception
+          </Button>
+        </div>
+      </Modal>
+      {toastNode}
     </>
   );
 }

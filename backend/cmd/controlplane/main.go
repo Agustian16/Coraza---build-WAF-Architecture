@@ -28,13 +28,16 @@ func main() {
 	}
 
 	// Optional infra — all degrade gracefully to in-memory.
-	st.PG = store.ConnectPostgres(ctx, cfg.DatabaseURL, "migrations")
+	st.Pool = store.ConnectPostgres(ctx, cfg.DatabaseURL, "migrations")
 	st.ClickHouse = store.ConnectClickHouse(ctx, cfg.ClickHouseAddr)
 	st.Redis = store.ConnectRedis(ctx, cfg.RedisAddr)
+	st.LoadFromPostgres(ctx)
 
-	// REST API for the web UI
+	// REST API for the web UI. `notify` wakes gRPC config streams after
+	// policy mutations so edge nodes hot-reload within the 1s target.
+	grpcSrv := grpcsrv.New(st)
 	go func() {
-		r := api.New(st, cfg.WebOrigin)
+		r := api.New(st, cfg.WebOrigin, grpcSrv.NotifyConfigUpdate)
 		log.Printf("[http] REST API listening on %s", cfg.HTTPAddr)
 		if err := r.Run(cfg.HTTPAddr); err != nil {
 			log.Fatalf("[http] %v", err)
@@ -52,8 +55,7 @@ func main() {
 			Timeout: 5 * time.Second,
 		}),
 	)
-	srv := grpcsrv.New(st)
-	v1.RegisterNodeControlServer(gs, srv)
+	v1.RegisterNodeControlServer(gs, grpcSrv)
 	reflection.Register(gs)
 	log.Printf("[grpc] NodeControl listening on %s", cfg.GRPCAddr)
 

@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Card, CardHeader, PageHeader, Badge, Select } from "@/components/ui";
+import { Card, CardHeader, PageHeader, Badge, Select, useToast } from "@/components/ui";
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip, Legend } from "recharts";
 import { botTrafficSplit, mockBotCategories } from "@/lib/mock-data";
-import { getBots } from "@/lib/api";
+import { getBots, updateBotAction } from "@/lib/api";
 import type { BotAction } from "@/lib/types";
 
 const actionTone: Record<BotAction, "green" | "amber" | "cyan" | "red"> = {
@@ -16,6 +16,7 @@ const actionTone: Record<BotAction, "green" | "amber" | "cyan" | "red"> = {
 
 export default function AntiBotPage() {
   const [bots, setBots] = useState(mockBotCategories);
+  const { show: showToast, node: toastNode } = useToast();
   useEffect(() => { getBots().then(setBots).catch(() => {}); }, []);
 
   return (
@@ -96,11 +97,11 @@ export default function AntiBotPage() {
                 <div className="hidden self-center lg:block">
                   <Select
                     value={b.action}
-                    onChange={(e) =>
-                      setBots((bs) =>
-                        bs.map((x) => (x.id === b.id ? { ...x, action: e.target.value as BotAction } : x))
-                      )
-                    }
+                    onChange={(e) => {
+                      const action = e.target.value as BotAction;
+                      setBots((bs) => bs.map((x) => (x.id === b.id ? { ...x, action } : x)));
+                      updateBotAction(b.id, action).then(() => showToast("Bot enforcement updated")).catch(() => showToast("Failed to update", false));
+                    }}
                     className="w-full"
                   >
                     {(["ALLOW", "LOG", "CHALLENGE", "BLOCK"] as const).map((a) => (
@@ -117,6 +118,7 @@ export default function AntiBotPage() {
         </Card>
       </div>
 
+      {toastNode}
       <Card className="mt-5 p-5 text-xs leading-relaxed text-muted">
         <span className="font-medium text-dim">How it works:</span> requests are
         fingerprinted (TLS/JA3, headers, behavioral signals) before reaching Coraza.

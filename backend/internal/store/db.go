@@ -1,6 +1,8 @@
 package store
 
 import (
+	"os"
+	"path/filepath"
 	"context"
 	"log"
 
@@ -32,13 +34,28 @@ func ConnectPostgres(ctx context.Context, url, migrationsDir string) *pgxpool.Po
 	return pool
 }
 
+// migrationSQL kept for compatibility; superseded by runMigrations scanning
+// the whole migrations directory.
+
 func runMigrations(ctx context.Context, pool *pgxpool.Pool, dir string) error {
-	sql, err := migrationSQL(dir)
+	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return err
 	}
-	_, err = pool.Exec(ctx, sql)
-	return err
+	for _, e := range entries {
+		if e.IsDir() || filepath.Ext(e.Name()) != ".sql" {
+			continue
+		}
+		b, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			return err
+		}
+		log.Printf("[store] applying migration %s", e.Name())
+		if _, err := pool.Exec(ctx, string(b)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // ConnectClickHouse opens the audit-log connection. Returns nil when unset.

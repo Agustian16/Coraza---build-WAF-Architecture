@@ -128,6 +128,9 @@ func SeedDemo(s *Store) {
 		{Country: "Ukraine", Code: "UA", Lat: 48.4, Lng: 31.2, Requests: 94500, Blocked: 26890},
 	}
 
+	s.Feeds["feed-001"] = &ThreatFeed{ID: "feed-001", Name: "firehol_level1", URL: "https://iplists.firehol.org/files/firehol_level1.netset", Interval: "6h", Status: "SYNCED", LastSync: "2026-08-24T06:00:00Z"}
+	s.Feeds["feed-002"] = &ThreatFeed{ID: "feed-002", Name: "abuseipdb_high_confidence", URL: "https://api.abuseipdb.com/blacklist", Interval: "12h", Status: "SYNCED", LastSync: "2026-08-24T06:00:00Z"}
+
 	s.Logs = []AuditLog{
 		{TransactionID: "log_908123491", Timestamp: "2026-08-24T19:40:12Z", NodeID: "b1a2c3d4-0001", SiteID: "site-001", ClientIP: "185.220.101.5", Country: "RU", ASN: "AS13335", HTTPMethod: "POST", URI: "/api/v1/login", HTTPVersion: "HTTP/2", ResponseStatus: 403, ActionTaken: "DENY", MatchedRuleIDs: []int64{942100}, MatchedMessages: []string{"SQL Injection Attack Detected via libinjection"}, MatchedData: []string{"' OR '1'='1"}, MatchedVarName: "ARGS:username", RequestHeaders: map[string]string{"user-agent": "sqlmap/1.8", "content-type": "application/x-www-form-urlencoded", "accept": "*/*"}, RequestBody: "username=' OR '1'='1&password=x", TargetHost: "api.domain.com", LatencyUS: 1420},
 		{TransactionID: "log_908123472", Timestamp: "2026-08-24T19:39:55Z", NodeID: "b1a2c3d4-0002", SiteID: "site-002", ClientIP: "103.21.244.12", Country: "ID", ASN: "AS45731", HTTPMethod: "GET", URI: "/products/search?q=<script>alert(1)</script>", HTTPVersion: "HTTP/2", ResponseStatus: 403, ActionTaken: "DENY", MatchedRuleIDs: []int64{941100}, MatchedMessages: []string{"XSS Attack Detected via libinjection"}, MatchedData: []string{"<script>alert(1)</script>"}, MatchedVarName: "ARGS:q", RequestHeaders: map[string]string{"user-agent": "Mozilla/5.0", "referer": "https://shop.domain.com/"}, TargetHost: "shop.domain.com", LatencyUS: 1180},

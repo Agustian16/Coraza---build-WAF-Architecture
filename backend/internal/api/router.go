@@ -11,7 +11,7 @@ import (
 	"corazium/controlplane/internal/store"
 )
 
-func New(s *store.Store, webOrigin string) *gin.Engine {
+func New(s *store.Store, webOrigin string, notify func()) *gin.Engine {
 	r := gin.Default()
 	r.Use(cors(webOrigin))
 
@@ -30,18 +30,18 @@ func New(s *store.Store, webOrigin string) *gin.Engine {
 
 		// Sites & policy
 		api.GET("/sites", Wrap(func(c *gin.Context) { c.JSON(200, s.ListSites()) }))
-		api.PATCH("/sites/:id", updateSite(s))
+		api.PATCH("/sites/:id", updateSite(s, notify))
 		api.GET("/crs/categories", Wrap(func(c *gin.Context) { c.JSON(200, s.ListCrsCategories()) }))
-		api.PATCH("/crs/categories/:id", toggleCrs(s))
+		api.PATCH("/crs/categories/:id", toggleCrs(s, notify))
 		api.GET("/policy/export", func(c *gin.Context) {
 			c.Data(200, "application/x-yaml", []byte(s.ExportPolicyYAML()))
 		})
 
 		// Custom rules
 		api.GET("/rules", Wrap(func(c *gin.Context) { c.JSON(200, s.ListRules()) }))
-		api.POST("/rules", createRule(s))
-		api.PATCH("/rules/:id", updateRule(s))
-		api.DELETE("/rules/:id", deleteRule(s))
+		api.POST("/rules", createRule(s, notify))
+		api.PATCH("/rules/:id", updateRule(s, notify))
+		api.DELETE("/rules/:id", deleteRule(s, notify))
 		api.POST("/rules/sandbox", sandboxTest(s))
 
 		// Logs
@@ -51,22 +51,30 @@ func New(s *store.Store, webOrigin string) *gin.Engine {
 
 		// Exceptions
 		api.GET("/exceptions", Wrap(func(c *gin.Context) { c.JSON(200, s.ListExceptions()) }))
-		api.POST("/exceptions", createException(s))
-		api.DELETE("/exceptions/:id", deleteException(s))
+		api.POST("/exceptions", createException(s, notify))
+		api.DELETE("/exceptions/:id", deleteException(s, notify))
 
 		// Access control
 		api.GET("/access-events", Wrap(func(c *gin.Context) { c.JSON(200, s.ListAccessEvents()) }))
 		api.GET("/ip-list", Wrap(func(c *gin.Context) { c.JSON(200, s.ListIps()) }))
-		api.POST("/ip-list", addIp(s))
-		api.DELETE("/ip-list/:id", deleteIp(s))
+		api.POST("/ip-list", addIp(s, notify))
+		api.DELETE("/ip-list/:id", deleteIp(s, notify))
 
 		// Rate limiting
 		api.GET("/rate-limits", Wrap(func(c *gin.Context) { c.JSON(200, s.ListRateLimits()) }))
-		api.PATCH("/rate-limits/:id", updateRateLimit(s))
+		api.POST("/rate-limits", addRateLimit(s, notify))
+		api.PATCH("/rate-limits/:id", updateRateLimit(s, notify))
+		api.DELETE("/rate-limits/:id", deleteRateLimit(s, notify))
+
+		// Threat intelligence feeds
+		api.GET("/feeds", listFeeds(s))
+		api.POST("/feeds", importFeed(s))
+		api.DELETE("/feeds/:id", deleteFeed(s))
+		api.POST("/feeds/:id/refresh", refreshFeed(s))
 
 		// Bot management
 		api.GET("/bots", Wrap(func(c *gin.Context) { c.JSON(200, s.ListBots()) }))
-		api.PATCH("/bots/:id", updateBot(s))
+		api.PATCH("/bots/:id", updateBot(s, notify))
 
 		// API security
 		api.GET("/api-security/endpoints", Wrap(func(c *gin.Context) { c.JSON(200, s.ListApiEndpoints()) }))
@@ -95,6 +103,12 @@ func cors(origin string) gin.HandlerFunc {
 	}
 }
 
+// policyChanged bumps edge nodes after any policy mutation (best-effort).
+func policyChanged(notify func()) {
+	if notify != nil {
+		notify()
+	}
+}
 // ---- Handlers ----
 
 type registerNodeReq struct {
@@ -132,7 +146,7 @@ type updateSiteReq struct {
 	OutboundThreshold *int `json:"outbound_threshold"`
 }
 
-func updateSite(s *store.Store) gin.HandlerFunc {
+func updateSite(s *store.Store, notify func()) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req updateSiteReq
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -149,11 +163,12 @@ func updateSite(s *store.Store) gin.HandlerFunc {
 		}
 		updated, _ := s.UpdateSite(c.Param("id"), derefOr(req.ParanoiaLevel, found.ParanoiaLevel),
 			derefOr(req.InboundThreshold, found.InboundThreshold), derefOr(req.OutboundThreshold, found.OutboundThreshold))
-		c.JSON(200, gin.H{"site": updated, "config_version": s.ConfigVersion})
+		policyChanged(notify)
+			c.JSON(200, gin.H{"site": updated, "config_version": s.ConfigVersion})
 	}
 }
 
-func toggleCrs(s *store.Store) gin.HandlerFunc {
+func toggleCrs(s *store.Store, notify func()) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req struct{ Enabled *bool `json:"enabled"` }
 		if err := c.ShouldBindJSON(&req); err != nil || req.Enabled == nil {
@@ -165,7 +180,8 @@ func toggleCrs(s *store.Store) gin.HandlerFunc {
 			c.JSON(404, gin.H{"error": "category not found"})
 			return
 		}
-		c.JSON(200, gin.H{"category": cat, "config_version": s.ConfigVersion})
+		policyChanged(notify)
+			c.JSON(200, gin.H{"category": cat, "config_version": s.ConfigVersion})
 	}
 }
 
@@ -178,7 +194,7 @@ type ruleReq struct {
 	Payload     string `json:"payload"`
 }
 
-func createRule(s *store.Store) gin.HandlerFunc {
+func createRule(s *store.Store, notify func()) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req ruleReq
 		if err := c.ShouldBindJSON(&req); err != nil || req.Name == "" || req.SecLangRaw == "" {
@@ -187,11 +203,12 @@ func createRule(s *store.Store) gin.HandlerFunc {
 		}
 		r := &store.CustomRule{RuleID: req.RuleID, SiteID: req.SiteID, Name: req.Name, SecLangRaw: req.SecLangRaw, IsActive: true, CreatedBy: "api"}
 		created := s.CreateRule(r)
+		policyChanged(notify)
 		c.JSON(201, created)
 	}
 }
 
-func updateRule(s *store.Store) gin.HandlerFunc {
+func updateRule(s *store.Store, notify func()) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req ruleReq
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -207,16 +224,18 @@ func updateRule(s *store.Store) gin.HandlerFunc {
 			c.JSON(404, gin.H{"error": "rule not found"})
 			return
 		}
+		policyChanged(notify)
 		c.JSON(200, r)
 	}
 }
 
-func deleteRule(s *store.Store) gin.HandlerFunc {
+func deleteRule(s *store.Store, notify func()) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if !s.DeleteRule(c.Param("id")) {
 			c.JSON(404, gin.H{"error": "rule not found"})
 			return
 		}
+		policyChanged(notify)
 		c.Status(204)
 	}
 }
@@ -298,7 +317,7 @@ type exceptionReq struct {
 	CreatedBy     string `json:"created_by"`
 }
 
-func createException(s *store.Store) gin.HandlerFunc {
+func createException(s *store.Store, notify func()) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req exceptionReq
 		if err := c.ShouldBindJSON(&req); err != nil || req.RuleID == 0 || req.PathPattern == "" {
@@ -310,11 +329,12 @@ func createException(s *store.Store) gin.HandlerFunc {
 			SiteID: req.SiteID, RuleID: req.RuleID, PathPattern: req.PathPattern,
 			ParameterName: req.ParameterName, Reason: req.Reason, CreatedBy: orDefault(req.CreatedBy, "api"),
 		})
+		policyChanged(notify)
 		c.JSON(201, x)
 	}
 }
 
-func deleteException(s *store.Store) gin.HandlerFunc {
+func deleteException(s *store.Store, notify func()) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if !s.DeleteException(c.Param("id")) {
 			c.JSON(404, gin.H{"error": "exception not found"})
@@ -324,7 +344,7 @@ func deleteException(s *store.Store) gin.HandlerFunc {
 	}
 }
 
-func addIp(s *store.Store) gin.HandlerFunc {
+func addIp(s *store.Store, notify func()) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req struct {
 			CIDR string `json:"cidr"`
@@ -336,21 +356,107 @@ func addIp(s *store.Store) gin.HandlerFunc {
 		}
 		if req.List != "allow" { req.List = "block" }
 		e := s.AddIp(&store.IpListEntry{CIDR: req.CIDR, List: req.List, Source: "manual"})
+		policyChanged(notify)
 		c.JSON(201, e)
 	}
 }
 
-func deleteIp(s *store.Store) gin.HandlerFunc {
+func deleteIp(s *store.Store, notify func()) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if !s.DeleteIp(c.Param("id")) {
 			c.JSON(404, gin.H{"error": "entry not found"})
+			return
+		}
+		policyChanged(notify)
+		c.Status(204)
+	}
+}
+
+// ---- Rate limit creation & threat feeds ----
+
+type rateLimitReq struct {
+	Name      string `json:"name"`
+	Endpoint  string `json:"endpoint"`
+	Threshold int    `json:"threshold"`
+	WindowSec int    `json:"window_sec"`
+	Action    string `json:"action"`
+	Enabled   *bool  `json:"enabled"`
+}
+
+func addRateLimit(s *store.Store, notify func()) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req rateLimitReq
+		if err := c.ShouldBindJSON(&req); err != nil || req.Name == "" || req.Threshold <= 0 {
+			c.JSON(400, gin.H{"error": "name and positive threshold are required"})
+			return
+		}
+		if req.Endpoint == "" { req.Endpoint = "* (all hosts)" }
+		if req.WindowSec <= 0 { req.WindowSec = 60 }
+		if req.Action != "TARPIT" && req.Action != "CAPTCHA" { req.Action = "BLOCK" }
+		enabled := true
+		if req.Enabled != nil { enabled = *req.Enabled }
+		r := s.AddRateLimit(&store.RateLimitRule{
+			Name: req.Name, Endpoint: req.Endpoint, Threshold: req.Threshold,
+			WindowSec: req.WindowSec, Action: req.Action, Enabled: enabled,
+		})
+		policyChanged(notify)
+		c.JSON(201, r)
+	}
+}
+
+func deleteRateLimit(s *store.Store, notify func()) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !s.DeleteRateLimit(c.Param("id")) {
+			c.JSON(404, gin.H{"error": "rule not found"})
+			return
+		}
+		policyChanged(notify)
+		c.Status(204)
+	}
+}
+
+func listFeeds(s *store.Store) gin.HandlerFunc {
+	return Wrap(func(c *gin.Context) { c.JSON(200, s.ListFeeds()) })
+}
+
+func importFeed(s *store.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req struct {
+			Name     string `json:"name"`
+			URL      string `json:"url"`
+			Interval string `json:"interval"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil || req.Name == "" || req.URL == "" {
+			c.JSON(400, gin.H{"error": "name and url are required"})
+			return
+		}
+		f := s.AddFeed(&store.ThreatFeed{Name: req.Name, URL: req.URL, Interval: req.Interval})
+		c.JSON(201, f)
+	}
+}
+
+func deleteFeed(s *store.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !s.DeleteFeed(c.Param("id")) {
+			c.JSON(404, gin.H{"error": "feed not found"})
 			return
 		}
 		c.Status(204)
 	}
 }
 
-func updateRateLimit(s *store.Store) gin.HandlerFunc {
+func refreshFeed(s *store.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		f, ok := s.RefreshFeed(c.Param("id"))
+		if !ok {
+			c.JSON(404, gin.H{"error": "feed not found"})
+			return
+		}
+		c.JSON(200, f)
+	}
+}
+
+func updateRateLimit(s *store.Store, notify func()) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req struct {
 			Enabled *bool   `json:"enabled"`
@@ -368,11 +474,12 @@ func updateRateLimit(s *store.Store) gin.HandlerFunc {
 			c.JSON(404, gin.H{"error": "rule not found"})
 			return
 		}
+		policyChanged(notify)
 		c.JSON(200, r)
 	}
 }
 
-func updateBot(s *store.Store) gin.HandlerFunc {
+func updateBot(s *store.Store, notify func()) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req struct{ Action *string `json:"action"` }
 		if err := c.ShouldBindJSON(&req); err != nil || req.Action == nil {
@@ -384,6 +491,7 @@ func updateBot(s *store.Store) gin.HandlerFunc {
 			c.JSON(404, gin.H{"error": "bot category not found"})
 			return
 		}
+		policyChanged(notify)
 		c.JSON(200, b)
 	}
 }

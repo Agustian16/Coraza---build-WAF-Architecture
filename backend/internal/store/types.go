@@ -161,3 +161,12 @@ type GeoStat struct {
 	Requests int64   `json:"requests"`
 	Blocked  int64   `json:"blocked"`
 }
+
+type ThreatFeed struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	URL      string `json:"url"`
+	Interval string `json:"interval"` // e.g. "6h"
+	Status   string `json:"status"`   // SYNCED | PENDING | ERROR
+	LastSync string `json:"last_sync"`
+}
