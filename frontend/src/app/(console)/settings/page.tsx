@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import { Card, CardHeader, PageHeader, Button, Badge, Input, Label, Select, useToast } from "@/components/ui";
 import { Download, RefreshCw, Plus, Trash2 } from "lucide-react";
 import { mockIpList } from "@/lib/mock-data";
@@ -17,7 +16,6 @@ interface Feed {
 }
 
 export default function SettingsPage() {
-  const router = useRouter();
   const [ipList, setIpList] = useState(mockIpList);
   const [feeds, setFeeds] = useState<Feed[]>([]);
   const [cidr, setCidr] = useState("");
@@ -62,17 +60,6 @@ export default function SettingsPage() {
         description="Threat intelligence feeds, IP reputation lists and GitOps export"
       />
 
-      <Card className="mb-5">
-        <CardHeader
-          title="User Profile"
-          subtitle="Manage your profile picture, credentials and preferences"
-          right={
-            <Button variant="primary" onClick={() => router.push("/settings/profile")}>
-              Open Profile
-            </Button>
-          }
-        />
-      </Card>
       <div className="grid gap-5 xl:grid-cols-2">
         <Card>
           <CardHeader

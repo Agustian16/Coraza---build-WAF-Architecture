@@ -16,6 +16,7 @@ import {
   Gauge,
   Bot,
   Braces,
+  LogOut,
 } from "lucide-react";
 import { cn, Badge, Button } from "./ui";
 import { ThemeToggle } from "./theme";
@@ -38,6 +39,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [avatar, setAvatar] = useState<string | null>(null);
   const [user, setUser] = useState<AuthUser | null>(null);
   // eslint-disable-next-line react-hooks/set-state-in-effect -- async getMe + rAF avatar read
@@ -96,40 +98,64 @@ export function Shell({ children }: { children: React.ReactNode }) {
           })}
         </nav>
 
-        <div className="border-t border-line p-4">
-          <button
-            onClick={() => router.push("/settings/profile")}
-            className="flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-panel"
-            title="Open profile"
-          >
-            {avatar ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={avatar}
-                alt=""
-                className="h-8 w-8 shrink-0 rounded-full border border-line object-cover"
-              />
-            ) : (
-              <CircleUserRound size={26} className="shrink-0 text-muted" />
-            )}
-            <div className="min-w-0 flex-1">
-              <div className="truncate text-xs font-medium text-dim">
-                {user?.email ?? "…"}
-              </div>
-              <div className="flex items-center gap-1.5">
-                <Badge tone="cyan">{user?.role ?? "—"}</Badge>
-                <span
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    logout();
-                  }}
-                  className="text-[10px] text-faint hover:text-red-400"
-                >
-                  Logout
+        <div className="border-t border-line p-3">
+          <div className="relative">
+            <button
+              onClick={() => setUserMenuOpen((v) => !v)}
+              className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left transition-colors hover:bg-panel"
+              title="Account"
+            >
+              {avatar ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={avatar}
+                  alt=""
+                  className="h-9 w-9 shrink-0 rounded-full border border-line object-cover"
+                />
+              ) : (
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-cyan-600/15 font-mono text-sm font-bold text-cyan-400">
+                  {(user?.name?.[0] ?? user?.email?.[0] ?? "?").toUpperCase()}
                 </span>
+              )}
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-xs font-medium text-dim">
+                  {user?.email ?? "…"}
+                </div>
+                <Badge tone="cyan">{user?.role ?? "—"}</Badge>
               </div>
-            </div>
-          </button>
+            </button>
+
+            {userMenuOpen && (
+              <>
+                <div
+                  className="fixed inset-0 z-40"
+                  onClick={() => setUserMenuOpen(false)}
+                />
+                <div className="absolute inset-x-0 bottom-full z-50 mb-2 rounded-xl border border-line bg-panel p-2 shadow-2xl">
+                  <button
+                    onClick={() => {
+                      setUserMenuOpen(false);
+                      router.push("/settings/profile");
+                    }}
+                    className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-dim transition-colors hover:bg-hover"
+                  >
+                    <CircleUserRound size={16} />
+                    Profile Settings
+                  </button>
+                  <button
+                    onClick={() => {
+                      setUserMenuOpen(false);
+                      logout();
+                    }}
+                    className="mt-1 flex w-full items-center justify-center gap-2 rounded-lg bg-red-600/15 px-3 py-2 text-sm font-medium text-red-300 transition-colors hover:bg-red-600/25"
+                  >
+                    <LogOut size={16} />
+                    Logout
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </aside>
 
