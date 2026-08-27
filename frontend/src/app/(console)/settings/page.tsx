@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Card, CardHeader, PageHeader, Button, Badge, Input, Label, Select, useToast } from "@/components/ui";
 import { Download, RefreshCw, Plus, Trash2 } from "lucide-react";
 import { mockIpList } from "@/lib/mock-data";
-import { addIp as apiAddIp, changePassword, deleteIp, downloadPolicyYaml, getFeeds, getIpList, getMe, importFeed, refreshFeed, setToken, updateProfile, type AuthUser } from "@/lib/api";
+import { addIp as apiAddIp, deleteIp, downloadPolicyYaml, getFeeds, getIpList, importFeed, refreshFeed } from "@/lib/api";
 
 interface Feed {
   id: string;
@@ -16,16 +17,13 @@ interface Feed {
 }
 
 export default function SettingsPage() {
+  const router = useRouter();
   const [ipList, setIpList] = useState(mockIpList);
   const [feeds, setFeeds] = useState<Feed[]>([]);
   const [cidr, setCidr] = useState("");
   const [listType, setListType] = useState<"allow" | "block">("block");
   const [feedUrl, setFeedUrl] = useState("");
   const { show: showToast, node: toastNode } = useToast();
-  const [user, setUser] = useState<AuthUser | null>(null);
-  const [profile, setProfile] = useState({ name: "", email: "" });
-  const [pw, setPw] = useState({ current: "", new: "" });
-  useEffect(() => { getMe().then((u) => { setUser(u); setProfile({ name: u.name, email: u.email }); }).catch(() => {}); }, []);
 
   const refreshIps = () => getIpList().then(setIpList).catch(() => {});
   const refreshFeeds = () => getFeeds().then(setFeeds).catch(() => {});
@@ -65,47 +63,15 @@ export default function SettingsPage() {
       />
 
       <Card className="mb-5">
-        <CardHeader title="User Profile" subtitle="Account details and credentials (RBAC roles: Admin / SecOps Analyst / Auditor)" />
-        <div className="grid gap-6 p-5 lg:grid-cols-2">
-          <div className="space-y-3">
-            <Label>Display Name</Label>
-            <Input value={profile.name} onChange={(e) => setProfile({ ...profile, name: e.target.value })} />
-            <Label>Email</Label>
-            <Input type="email" value={profile.email} onChange={(e) => setProfile({ ...profile, email: e.target.value })} />
-            <Button
-              variant="primary"
-              onClick={() =>
-                updateProfile(profile)
-                  .then((res) => {
-                    setToken(res.token);
-                    setUser(res.user);
-                    showToast("Profile updated");
-                  })
-                  .catch(() => showToast("Failed to update profile", false))
-              }
-            >
-              Save Profile
+        <CardHeader
+          title="User Profile"
+          subtitle="Manage your profile picture, credentials and preferences"
+          right={
+            <Button variant="primary" onClick={() => router.push("/settings/profile")}>
+              Open Profile
             </Button>
-          </div>
-          <div className="space-y-3 lg:border-l lg:border-line lg:pl-6">
-            <Label>Current Password</Label>
-            <Input type="password" value={pw.current} onChange={(e) => setPw({ ...pw, current: e.target.value })} />
-            <Label>New Password (min 8 chars)</Label>
-            <Input type="password" value={pw.new} onChange={(e) => setPw({ ...pw, new: e.target.value })} />
-            <Button
-              onClick={() => {
-                changePassword(pw.current, pw.new)
-                  .then(() => {
-                    showToast("Password changed");
-                    setPw({ current: "", new: "" });
-                  })
-                  .catch(() => showToast("Failed to change password", false))
-              }}
-            >
-              Change Password
-            </Button>
-          </div>
-        </div>
+          }
+        />
       </Card>
       <div className="grid gap-5 xl:grid-cols-2">
         <Card>

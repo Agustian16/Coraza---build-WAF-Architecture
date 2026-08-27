@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
   LayoutDashboard,
@@ -36,9 +36,22 @@ const nav = [
 
 export function Shell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
   const [open, setOpen] = useState(false);
+  const [avatar, setAvatar] = useState<string | null>(null);
   const [user, setUser] = useState<AuthUser | null>(null);
-  useEffect(() => { getMe().then(setUser).catch(() => {}); }, []);
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- async getMe + rAF avatar read
+  useEffect(() => {
+    getMe()
+      .then((u) => setUser(u))
+      .catch(() => {});
+    const raf = requestAnimationFrame(() => {
+      try {
+        setAvatar(localStorage.getItem("corazium_avatar"));
+      } catch {}
+    });
+    return () => cancelAnimationFrame(raf);
+  }, []);
 
   return (
     <div className="flex min-h-screen">
@@ -84,23 +97,39 @@ export function Shell({ children }: { children: React.ReactNode }) {
         </nav>
 
         <div className="border-t border-line p-4">
-          <div className="flex items-center gap-2.5">
-            <CircleUserRound size={20} className="text-muted" />
+          <button
+            onClick={() => router.push("/settings/profile")}
+            className="flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-panel"
+            title="Open profile"
+          >
+            {avatar ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={avatar}
+                alt=""
+                className="h-8 w-8 shrink-0 rounded-full border border-line object-cover"
+              />
+            ) : (
+              <CircleUserRound size={26} className="shrink-0 text-muted" />
+            )}
             <div className="min-w-0 flex-1">
               <div className="truncate text-xs font-medium text-dim">
                 {user?.email ?? "…"}
               </div>
               <div className="flex items-center gap-1.5">
                 <Badge tone="cyan">{user?.role ?? "—"}</Badge>
-                <button
-                  onClick={() => logout()}
+                <span
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    logout();
+                  }}
                   className="text-[10px] text-faint hover:text-red-400"
                 >
                   Logout
-                </button>
+                </span>
               </div>
             </div>
-          </div>
+          </button>
         </div>
       </aside>
 
